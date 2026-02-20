@@ -30,7 +30,7 @@ Shared memory layout (scsTelemetryMap_s, no #pragma pack):
 import logging
 import struct
 import sys
-from typing import Any, Optional, cast
+from typing import Any, NamedTuple, Optional, cast
 
 log = logging.getLogger(__name__)
 
@@ -38,7 +38,20 @@ _SHARED_MEM_NAME = "Local\\SCSTelemetry"
 _SHARED_MEM_SIZE = 32 * 1024  # struct is ~6 KB; 32 KB gives headroom
 
 _SDK_ACTIVE_OFFSET = 0   # bool  sdkActive
+_PAUSED_OFFSET = 4       # bool  paused
 _TIME_ABS_OFFSET = 64    # u32   time_abs – in-game minutes since epoch
+
+
+class Telemetry(NamedTuple):
+    game_time: int   # minutes since midnight, 0–1439
+    paused: bool     # True when game simulation is paused
+
+
+def get_telemetry() -> Optional[Telemetry]:
+    """Return current telemetry, or None if game/plugin not active."""
+    if sys.platform != "win32":
+        return None
+    return _read_shared_memory()
 
 
 def get_game_time() -> Optional[int]:
@@ -51,22 +64,35 @@ def get_game_time() -> Optional[int]:
     if sys.platform != "win32":
         log.debug("Non-Windows platform – telemetry unavailable")
         return None
-    return _read_shared_memory()
+    result = _read_shared_memory()
+    return result.game_time if result is not None else None
 
 
-def _read_shared_memory() -> Optional[int]:
+def _read_shared_memory() -> Optional[Telemetry]:
     try:
         import ctypes
 
         FILE_MAP_READ = 0x0004
         kernel32 = cast(Any, ctypes.WinDLL("kernel32", use_last_error=True))  # type: ignore[attr-defined]
 
-        handle = cast(int, kernel32.OpenFileMappingW(FILE_MAP_READ, False, _SHARED_MEM_NAME))
+        # Must declare restype AND argtypes for pointer-sized values.
+        # The default c_int (32-bit) truncates 64-bit pointers on Win64 both
+        # when receiving return values and when passing handles back as args.
+        HANDLE = ctypes.c_void_p  # type: ignore[attr-defined]
+        LPVOID = ctypes.c_void_p  # type: ignore[attr-defined]
+        kernel32.OpenFileMappingW.restype = HANDLE  # type: ignore[attr-defined]
+        kernel32.OpenFileMappingW.argtypes = [ctypes.c_uint32, ctypes.c_bool, ctypes.c_wchar_p]  # type: ignore[attr-defined]
+        kernel32.MapViewOfFile.restype = LPVOID  # type: ignore[attr-defined]
+        kernel32.MapViewOfFile.argtypes = [HANDLE, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_size_t]  # type: ignore[attr-defined]
+        kernel32.UnmapViewOfFile.argtypes = [LPVOID]  # type: ignore[attr-defined]
+        kernel32.CloseHandle.argtypes = [HANDLE]  # type: ignore[attr-defined]
+
+        handle = kernel32.OpenFileMappingW(FILE_MAP_READ, False, _SHARED_MEM_NAME)
         if not handle:
             return None  # Game not running or plugin not installed
 
         try:
-            ptr = cast(int, kernel32.MapViewOfFile(handle, FILE_MAP_READ, 0, 0, _SHARED_MEM_SIZE))
+            ptr = kernel32.MapViewOfFile(handle, FILE_MAP_READ, 0, 0, _SHARED_MEM_SIZE)
             if not ptr:
                 log.warning("MapViewOfFile failed (error %d)", ctypes.get_last_error())  # type: ignore[attr-defined]
                 return None
@@ -80,8 +106,9 @@ def _read_shared_memory() -> Optional[int]:
                 if not sdk_active:
                     return None  # Game running but telemetry not active
 
+                paused = struct.unpack_from("?", data, _PAUSED_OFFSET)[0]
                 time_abs = struct.unpack_from("<I", data, _TIME_ABS_OFFSET)[0]
-                return time_abs % 1440  # Normalize to minutes-since-midnight
+                return Telemetry(game_time=time_abs % 1440, paused=paused)
             finally:
                 kernel32.UnmapViewOfFile(ptr)
         finally:

@@ -33,7 +33,7 @@ from telemetry import get_game_time
 load_dotenv()
 
 # ── Configuration ────────────────────────────────────────────────────────────
-POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "1.0"))   # seconds (FR05)
+POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "15"))   # seconds (FR05)
 SIM_MODE = os.getenv("SIM_MODE", "0") == "1"
 SIM_TIME_START = int(os.getenv("SIM_TIME_START", "360"))   # 06:00
 SIM_TIME_SPEED = float(os.getenv("SIM_TIME_SPEED", "60"))  # game-min per real-sec
@@ -83,8 +83,6 @@ def main() -> None:
     client = HomeAssistantClient()
     _sim_epoch = time.monotonic()
 
-    last_brightness: Optional[int] = None
-    last_color_temp: Optional[int] = None
     game_was_running = False
 
     while _running:
@@ -99,8 +97,6 @@ def main() -> None:
             if game_was_running:
                 log.info("Game disconnected — resetting light")
                 client.reset_to_default()
-                last_brightness = None
-                last_color_temp = None
                 game_was_running = False
             time.sleep(POLL_INTERVAL)
             continue
@@ -109,17 +105,15 @@ def main() -> None:
             log.info("Game connected")
             game_was_running = True
 
-        # ── Calculate and (if changed) apply light settings ───────────────
+        # ── Calculate and apply light settings every poll ─────────────────
+        assert isinstance(game_time, int)
         brightness, color_temp = calculate_light(game_time)
 
-        if brightness != last_brightness or color_temp != last_color_temp:
-            log.info(
-                "Game %s  →  brightness=%3d/255  color_temp=%dK",
-                _fmt(game_time), brightness, color_temp,
-            )
-            client.set_light(brightness, color_temp)
-            last_brightness = brightness
-            last_color_temp = color_temp
+        log.info(
+            "Game %s  →  brightness=%3d/255  color_temp=%dK",
+            _fmt(game_time), brightness, color_temp,
+        )
+        client.set_light(brightness, color_temp)
 
         time.sleep(POLL_INTERVAL)
 

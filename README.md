@@ -36,3 +36,17 @@ If `.env.example` does not exist, create `.env` directly:
 ni .env
 notepad .env
 ```
+
+## Windows: deactivate `.venv`
+
+PowerShell:
+
+```powershell
+deactivate
+```
+
+Command Prompt (CMD):
+
+```cmd
+deactivate
+```
