@@ -6,6 +6,8 @@ param(
 
 $tag = "v$Version"
 
+Set-Content -Path VERSION -Value $Version
+
 git add -A
 git commit -m "Release $tag"
 git tag $tag
