@@ -3,6 +3,9 @@
 Syncs Euro Truck Simulator 2 in-game time to a Home Assistant light, adjusting
 brightness and colour temperature through the day/night cycle.
 
+The light turns **off** at night, fades in at sunrise, peaks cool-white at midday,
+and warms to amber during the golden hour before sunset.
+
 ---
 
 ## Requirements
@@ -44,6 +47,21 @@ py -m venv .venv
 3. Click **▶ Start** — the sync loop begins.
 4. Close the window to minimise to the system tray; right-click → **Quit** to exit.
 
+On any exit (crash, SIGTERM, force-close) the light is automatically reset to its
+default brightness and colour temperature.
+
+### Testing without ETS2 (simulation mode)
+
+In **⚙ Settings**, enable **Simulation mode**, set a start time and speed, then click Start.
+The sync runs against a virtual clock — no game required.
+
+To see a full day cycle in ~2 minutes use speed **12×** and poll interval **2 s**.
+
+### Theme
+
+A theme selector (System / Light / Dark) is in the main window toolbar.
+The choice is saved and restored on next launch.
+
 ---
 
 ## 3 — Build a standalone exe
@@ -81,7 +99,11 @@ notepad .env
 | `ha_url` | `http://192.168.3.155:8123` | Home Assistant base URL |
 | `ha_token` | *(required)* | Long-lived access token |
 | `entity_id` | `light.luz` | Target light entity |
-| `poll_interval` | `15` | Seconds between polls |
-| `transition_time` | `1` | Light transition in seconds |
+| `poll_interval` | `5` | Seconds between polls (real game) |
+| `transition_time` | `5` | Light transition in seconds |
 | `default_brightness` | `255` | Brightness on reset (0–255) |
 | `default_color_temp_k` | `4000` | Colour temp on reset (Kelvin) |
+| `theme` | `System` | UI theme: `System`, `Light`, or `Dark` |
+| `sim_mode` | `false` | Enable simulation mode |
+| `sim_time_start` | `360` | Sim start time in minutes (360 = 06:00) |
+| `sim_time_speed` | `60.0` | Game-minutes per real-second |
