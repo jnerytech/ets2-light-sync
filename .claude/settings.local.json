@@ -5,7 +5,8 @@
       "Bash(.venv/bin/python:*)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(.venv/Scripts/python:*)"
     ]
   }
 }

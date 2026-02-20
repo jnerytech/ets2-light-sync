@@ -1,2 +1,4 @@
 requests
 python-dotenv
+PyQt6
+pyinstaller
