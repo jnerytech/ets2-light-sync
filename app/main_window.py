@@ -10,6 +10,8 @@ import logging
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent, QFont
 from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -21,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app import config, theme
 from app.icon import make_icon
 from app.log_handler import QtLogHandler
 from app.settings_dialog import SettingsDialog
@@ -80,10 +83,21 @@ class MainWindow(QMainWindow):
         self._settings_btn = QPushButton("⚙  Settings")
         self._settings_btn.clicked.connect(self._open_settings)
 
+        copy_btn = QPushButton("⎘  Copy Logs")
+        copy_btn.clicked.connect(self._copy_logs)
+
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItems(theme.THEMES)
+        saved_theme = config.load().get("theme", "System")
+        self._theme_combo.setCurrentText(saved_theme)
+        self._theme_combo.currentTextChanged.connect(self._on_theme_changed)  # type: ignore[misc]
+
         btn_layout.addWidget(self._start_btn)
         btn_layout.addWidget(self._stop_btn)
         btn_layout.addStretch()
+        btn_layout.addWidget(copy_btn)
         btn_layout.addWidget(self._settings_btn)
+        btn_layout.addWidget(self._theme_combo)
         root.addLayout(btn_layout)
 
         # ── Log area ──────────────────────────────────────────────────────────
@@ -173,6 +187,15 @@ class MainWindow(QMainWindow):
         # Auto-scroll
         scrollbar = self._log_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
+
+    def _on_theme_changed(self, name: str) -> None:
+        theme.apply(name)
+        cfg = config.load()
+        cfg["theme"] = name
+        config.save(cfg)
+
+    def _copy_logs(self) -> None:
+        QApplication.clipboard().setText(self._log_view.toPlainText())
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self)

@@ -12,6 +12,7 @@ import sys
 
 from PyQt6.QtWidgets import QApplication
 
+from app import config, theme
 from app.icon import make_icon
 from app.main_window import MainWindow
 
@@ -27,6 +28,9 @@ def main() -> None:
     app.setApplicationName("ETS2 Light Sync")
     app.setWindowIcon(make_icon())        # taskbar, Alt+Tab, title bar
     app.setQuitOnLastWindowClosed(False)  # keep alive in tray
+
+    theme.init()
+    theme.apply(config.load().get("theme", "System"))
 
     window = MainWindow()
     window.show()

@@ -17,6 +17,11 @@ from ha_client import HomeAssistantClient
 from light_curve import calculate_light
 from telemetry import get_game_time
 
+def _sim_time(start: int, speed: float, epoch: float) -> int:
+    """Return simulated game time (0–1439 min) based on wall clock."""
+    elapsed = time.monotonic() - epoch
+    return int(start + elapsed * speed) % 1440
+
 log = logging.getLogger(__name__)
 
 
@@ -61,15 +66,29 @@ class SyncWorker(QThread):
             self.status_changed.emit("error")
             return
 
-        poll_interval = float(cfg.get("poll_interval", 15))
+        sim_mode = bool(cfg.get("sim_mode", False))
+        sim_start = int(cfg.get("sim_time_start", 360))
+        sim_speed = float(cfg.get("sim_time_speed", 60.0))
+        sim_epoch = time.monotonic()
+        # In sim mode, always poll at 1 s so transitions look smooth regardless
+        # of the configured poll interval (which is tuned for real gameplay).
+        poll_interval = 1.0 if sim_mode else float(cfg.get("poll_interval", 5))
+
         self._running = True
         game_was_running = False
 
-        log.info("ETS2 Light Sync starting  [poll=%.1fs]", poll_interval)
+        log.info(
+            "ETS2 Light Sync starting  [poll=%.1fs%s]",
+            poll_interval,
+            f", SIM start={sim_start // 60:02d}:{sim_start % 60:02d} speed={sim_speed}×" if sim_mode else "",
+        )
         self.status_changed.emit("running")
 
         while self._running:
-            game_time: Optional[int] = get_game_time()
+            if sim_mode:
+                game_time: Optional[int] = _sim_time(sim_start, sim_speed, sim_epoch)
+            else:
+                game_time = get_game_time()
 
             if game_time is None:
                 if game_was_running:

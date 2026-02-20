@@ -14,10 +14,15 @@ _DEFAULTS: dict[str, Any] = {
     "ha_url": "http://192.168.3.155:8123",
     "ha_token": "",
     "entity_id": "light.luz",
-    "poll_interval": 15,
-    "transition_time": 1,
+    "poll_interval": 5,
+    "transition_time": 5,
     "default_brightness": 255,
     "default_color_temp_k": 4000,
+    "theme": "System",
+    # Simulation mode
+    "sim_mode": False,
+    "sim_time_start": 360,   # minutes since midnight (06:00)
+    "sim_time_speed": 60.0,  # game-minutes per real-second
 }
 
 

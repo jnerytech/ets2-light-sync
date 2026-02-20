@@ -2,71 +2,71 @@
 light_curve.py – Day/night cycle light settings for ETS2.
 
 Converts an in-game time-of-day (0–1439 minutes) into bulb brightness and
-color temperature using smooth sinusoidal S-curves for dawn and dusk.
+colour temperature using a multi-waypoint curve with cosine easing between
+every segment.
 
-Timeline (all times in game minutes since midnight):
-  00:00 – 05:30  Night   →  dim warm light
-  05:30 – 07:00  Dawn    →  gradual transition to full daylight  (FR02)
-  07:00 – 18:00  Day     →  full brightness, cool white
-  18:00 – 20:00  Dusk    →  gradual transition back to night     (FR02)
-  20:00 – 24:00  Night   →  dim warm light
+Curve waypoints  (all times in game-minutes since midnight):
+  00:00  Midnight    →   8 br   2700 K   dark neutral
+  05:30  Night end   →   8 br   2700 K   dark neutral
+  06:30  Sunrise     →  14 br   2100 K   warm amber burst
+  07:30  Morning     →  70 br   3000 K   soft warm light
+  09:00  Late morn.  → 220 br   4500 K   warming to day
+  10:30  Full day    → 255 br   5800 K   cool bright
+  14:30  Midday      → 255 br   6000 K   peak cool white
+  16:30  Afternoon   → 245 br   5000 K   slight shift
+  17:30  Golden hour → 210 br   3400 K   amber/warm
+  18:00  Sunset      → 160 br   2600 K   deep amber
+  19:00  Dusk        →  18 br   2500 K   rapidly darkening
+  20:30  Night       →   8 br   2700 K   dark neutral
+  24:00  Midnight    →   8 br   2700 K   (wraps to start)
 """
 
 import math
 
-# ── Transition boundaries (minutes since midnight) ──────────────────────────
-_NIGHT_END_MIN = 5 * 60 + 30   # 05:30 – dawn starts
-_DAWN_END_MIN = 7 * 60          # 07:00 – full day
-_DUSK_START_MIN = 18 * 60       # 18:00 – dusk starts
-_NIGHT_START_MIN = 20 * 60      # 20:00 – full night
-
-# ── Light values ─────────────────────────────────────────────────────────────
-NIGHT_BRIGHTNESS = 13       # ~5 % of 255  (bulb stays on, very dim)
-DAY_BRIGHTNESS = 255        # 100 %
-
-NIGHT_KELVIN = 2_200        # Very warm amber  (night / pre-dawn)
-DAWN_KELVIN = 3_200         # Warm orange      (sunrise colour)
-DAY_KELVIN = 5_500          # Cool daylight
+# ── Waypoints ─────────────────────────────────────────────────────────────────
+# Each entry: (minutes_since_midnight, brightness 0–255, colour_temp_kelvin)
+_CURVE: list[tuple[int, int, int]] = [
+    (    0,   1,  2700),  # 00:00  midnight
+    (  330,   1,  2700),  # 05:30  night end
+    (  390,  14,  2100),  # 06:30  sunrise — warm amber
+    (  450,  70,  3000),  # 07:30  early morning
+    (  540, 220,  4500),  # 09:00  morning
+    (  630, 255,  5800),  # 10:30  full day
+    (  870, 255,  6000),  # 14:30  midday peak (cool)
+    (  990, 245,  5000),  # 16:30  afternoon
+    ( 1050, 210,  3400),  # 17:30  golden hour
+    ( 1080, 160,  2600),  # 18:00  sunset amber
+    ( 1140,   5,  2500),  # 19:00  dusk
+    ( 1230,   1,  2700),  # 20:30  night
+    ( 1440,   1,  2700),  # 24:00  midnight (= start)
+]
 
 
 def _smooth(t: float) -> float:
-    """Cosine-based smooth step: maps t ∈ [0,1] → [0,1] with ease-in/out."""
+    """Cosine ease-in/out: maps t ∈ [0, 1] → [0, 1]."""
     return (1.0 - math.cos(t * math.pi)) / 2.0
 
 
 def calculate_light(game_time_minutes: int) -> tuple[int, int]:
-    """Return ``(brightness, color_temp_kelvin)`` for the given game time.
+    """Return ``(brightness, colour_temp_kelvin)`` for the given game time.
 
     Parameters
     ----------
     game_time_minutes:
-        Minutes since midnight, expected range 0–1439 (values outside are
-        normalised via modulo).
+        Minutes since midnight, range 0–1439 (normalised via modulo).
 
     Returns
     -------
     tuple[int, int]
-        ``brightness`` in 0–255 and ``color_temp_kelvin`` in Kelvin.
+        ``brightness`` in 0–255 and ``colour_temp_kelvin`` in Kelvin.
     """
     t = game_time_minutes % 1440
 
-    if _DAWN_END_MIN <= t < _DUSK_START_MIN:
-        # ── Full day ──────────────────────────────────────────────────────
-        return DAY_BRIGHTNESS, DAY_KELVIN
+    for i in range(len(_CURVE) - 1):
+        t0, b0, k0 = _CURVE[i]
+        t1, b1, k1 = _CURVE[i + 1]
+        if t0 <= t < t1:
+            p = _smooth((t - t0) / (t1 - t0))
+            return round(b0 + p * (b1 - b0)), round(k0 + p * (k1 - k0))
 
-    if _NIGHT_END_MIN <= t < _DAWN_END_MIN:
-        # ── Dawn: night → day ─────────────────────────────────────────────
-        p = _smooth((t - _NIGHT_END_MIN) / (_DAWN_END_MIN - _NIGHT_END_MIN))
-        brightness = round(NIGHT_BRIGHTNESS + p * (DAY_BRIGHTNESS - NIGHT_BRIGHTNESS))
-        kelvin = round(NIGHT_KELVIN + p * (DAY_KELVIN - NIGHT_KELVIN))
-        return brightness, kelvin
-
-    if _DUSK_START_MIN <= t < _NIGHT_START_MIN:
-        # ── Dusk: day → night ─────────────────────────────────────────────
-        p = _smooth((t - _DUSK_START_MIN) / (_NIGHT_START_MIN - _DUSK_START_MIN))
-        brightness = round(DAY_BRIGHTNESS - p * (DAY_BRIGHTNESS - NIGHT_BRIGHTNESS))
-        kelvin = round(DAY_KELVIN - p * (DAY_KELVIN - NIGHT_KELVIN))
-        return brightness, kelvin
-
-    # ── Night (before dawn or after dusk) ───────────────────────────────────
-    return NIGHT_BRIGHTNESS, NIGHT_KELVIN
+    return _CURVE[0][1], _CURVE[0][2]
