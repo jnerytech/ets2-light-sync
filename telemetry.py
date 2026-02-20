@@ -30,7 +30,7 @@ Shared memory layout (scsTelemetryMap_s, no #pragma pack):
 import logging
 import struct
 import sys
-from typing import Optional
+from typing import Any, Optional, cast
 
 log = logging.getLogger(__name__)
 
@@ -57,19 +57,18 @@ def get_game_time() -> Optional[int]:
 def _read_shared_memory() -> Optional[int]:
     try:
         import ctypes
-        import ctypes.wintypes
 
         FILE_MAP_READ = 0x0004
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32 = cast(Any, ctypes.WinDLL("kernel32", use_last_error=True))  # type: ignore[attr-defined]
 
-        handle = kernel32.OpenFileMappingW(FILE_MAP_READ, False, _SHARED_MEM_NAME)
+        handle = cast(int, kernel32.OpenFileMappingW(FILE_MAP_READ, False, _SHARED_MEM_NAME))
         if not handle:
             return None  # Game not running or plugin not installed
 
         try:
-            ptr = kernel32.MapViewOfFile(handle, FILE_MAP_READ, 0, 0, _SHARED_MEM_SIZE)
+            ptr = cast(int, kernel32.MapViewOfFile(handle, FILE_MAP_READ, 0, 0, _SHARED_MEM_SIZE))
             if not ptr:
-                log.warning("MapViewOfFile failed (error %d)", ctypes.get_last_error())
+                log.warning("MapViewOfFile failed (error %d)", ctypes.get_last_error())  # type: ignore[attr-defined]
                 return None
 
             try:

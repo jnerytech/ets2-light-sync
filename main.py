@@ -51,7 +51,7 @@ _running = True
 _sim_epoch: float = 0.0
 
 
-def _shutdown(signum=None, frame=None) -> None:
+def _shutdown(signum: int | None = None, frame: object | None = None) -> None:
     global _running
     _running = False
 
