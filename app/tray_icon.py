@@ -27,24 +27,24 @@ class TrayIcon(QSystemTrayIcon):
         menu = QMenu()
 
         show_action: QAction = menu.addAction("Show Window")  # type: ignore[assignment]
-        show_action.triggered.connect(self._show_window)
+        show_action.triggered.connect(self._show_window)  # type: ignore[misc]
 
         menu.addSeparator()
 
         self._start_action: QAction = menu.addAction("Start")  # type: ignore[assignment]
-        self._start_action.triggered.connect(window.start_sync)
+        self._start_action.triggered.connect(window.start_sync)  # type: ignore[misc]
 
         self._stop_action: QAction = menu.addAction("Stop")  # type: ignore[assignment]
-        self._stop_action.triggered.connect(window.stop_sync)
+        self._stop_action.triggered.connect(window.stop_sync)  # type: ignore[misc]
         self._stop_action.setEnabled(False)
 
         menu.addSeparator()
 
         quit_action: QAction = menu.addAction("Quit")  # type: ignore[assignment]
-        quit_action.triggered.connect(self._quit)
+        quit_action.triggered.connect(self._quit)  # type: ignore[misc]
 
         self.setContextMenu(menu)
-        self.activated.connect(self._on_activated)
+        self.activated.connect(self._on_activated)  # type: ignore[misc]
 
     # ── Public ────────────────────────────────────────────────────────────────
 
