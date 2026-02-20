@@ -4,6 +4,16 @@ deactivate
 pip install -r requirements.txt
 python test_ha_light.py
 
+Windows (either activate, or run Python from `.venv` directly):
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+# or without activation:
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe test_ha_light.py
+```
+
 ## Windows: create and edit `.env`
 
 PowerShell:
