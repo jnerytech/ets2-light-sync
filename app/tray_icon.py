@@ -5,34 +5,42 @@ Provides a context menu with Show/Hide, Start/Stop, and Quit actions.
 Double-clicking the icon restores the main window.
 """
 
-from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon, QWidget
 
 from app.icon import make_icon
 
+if TYPE_CHECKING:
+    from app.main_window import MainWindow
+
 
 class TrayIcon(QSystemTrayIcon):
-    def __init__(self, window, parent=None) -> None:
+    def __init__(self, window: MainWindow, parent: QWidget | None = None) -> None:
         super().__init__(make_icon(indicator_color="#9E9E9E"), parent)
         self._window = window
         self.setToolTip("ETS2 Light Sync")
 
         menu = QMenu()
 
-        self._show_action = menu.addAction("Show Window")
-        self._show_action.triggered.connect(self._show_window)
+        show_action: QAction = menu.addAction("Show Window")  # type: ignore[assignment]
+        show_action.triggered.connect(self._show_window)
 
         menu.addSeparator()
 
-        self._start_action = menu.addAction("Start")
+        self._start_action: QAction = menu.addAction("Start")  # type: ignore[assignment]
         self._start_action.triggered.connect(window.start_sync)
 
-        self._stop_action = menu.addAction("Stop")
+        self._stop_action: QAction = menu.addAction("Stop")  # type: ignore[assignment]
         self._stop_action.triggered.connect(window.stop_sync)
         self._stop_action.setEnabled(False)
 
         menu.addSeparator()
 
-        quit_action = menu.addAction("Quit")
+        quit_action: QAction = menu.addAction("Quit")  # type: ignore[assignment]
         quit_action.triggered.connect(self._quit)
 
         self.setContextMenu(menu)
