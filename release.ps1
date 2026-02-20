@@ -11,7 +11,10 @@ if ($existing) {
 }
 
 git add -A
-git commit -m "Release $tag"
+$changes = git status --porcelain
+if ($changes) {
+    git commit -m "Release $tag"
+}
 git tag $tag
 git push origin master
 git push origin $tag
