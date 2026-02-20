@@ -5,28 +5,14 @@ Provides a context menu with Show/Hide, Start/Stop, and Quit actions.
 Double-clicking the icon restores the main window.
 """
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-
-def _make_icon(color: str = "#4CAF50") -> QIcon:
-    """Generate a simple filled circle as the tray icon."""
-    size = 64
-    pixmap = QPixmap(QSize(size, size))
-    pixmap.fill(QColor("transparent"))
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setBrush(QColor(color))
-    painter.setPen(QColor("transparent"))
-    painter.drawEllipse(4, 4, size - 8, size - 8)
-    painter.end()
-    return QIcon(pixmap)
+from app.icon import make_icon
 
 
 class TrayIcon(QSystemTrayIcon):
     def __init__(self, window, parent=None) -> None:
-        super().__init__(_make_icon(), parent)
+        super().__init__(make_icon(indicator_color="#9E9E9E"), parent)
         self._window = window
         self.setToolTip("ETS2 Light Sync")
 
@@ -58,7 +44,7 @@ class TrayIcon(QSystemTrayIcon):
         self._start_action.setEnabled(not running)
         self._stop_action.setEnabled(running)
         color = "#4CAF50" if running else "#9E9E9E"
-        self.setIcon(_make_icon(color))
+        self.setIcon(make_icon(indicator_color=color))
 
     # ── Private ───────────────────────────────────────────────────────────────
 

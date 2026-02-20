@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.icon import make_icon
 from app.log_handler import QtLogHandler
 from app.settings_dialog import SettingsDialog
 from app.sync_worker import SyncWorker
@@ -189,6 +190,6 @@ class MainWindow(QMainWindow):
         self._tray.showMessage(
             "ETS2 Light Sync",
             "Still running in the system tray.",
-            QSystemTrayIcon.MessageIcon.Information,
+            make_icon(),
             2000,
         )
