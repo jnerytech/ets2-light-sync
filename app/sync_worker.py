@@ -103,10 +103,13 @@ class SyncWorker(QThread):
                     self.status_changed.emit("connected")
 
                 brightness, color_temp = calculate_light(game_time)
-                log.info(
-                    "Game %02d:%02d  →  brightness=%3d/255  color_temp=%dK",
-                    game_time // 60, game_time % 60, brightness, color_temp,
-                )
+                if brightness == 0:
+                    log.info("Game %02d:%02d  →  off", game_time // 60, game_time % 60)
+                else:
+                    log.info(
+                        "Game %02d:%02d  →  brightness=%3d/255  color_temp=%dK",
+                        game_time // 60, game_time % 60, brightness, color_temp,
+                    )
                 client.set_light(brightness, color_temp)
                 self.light_updated.emit(game_time, brightness, color_temp)
 

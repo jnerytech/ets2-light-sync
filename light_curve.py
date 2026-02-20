@@ -26,9 +26,9 @@ import math
 # ── Waypoints ─────────────────────────────────────────────────────────────────
 # Each entry: (minutes_since_midnight, brightness 0–255, colour_temp_kelvin)
 _CURVE: list[tuple[int, int, int]] = [
-    (    0,   1,  2700),  # 00:00  midnight
-    (  330,   1,  2700),  # 05:30  night end
-    (  390,  14,  2100),  # 06:30  sunrise — warm amber
+    (    0,   0,  2700),  # 00:00  midnight       — off
+    (  330,   0,  2700),  # 05:30  night end      — off
+    (  390,  14,  2100),  # 06:30  sunrise — warm amber, fades in
     (  450,  70,  3000),  # 07:30  early morning
     (  540, 220,  4500),  # 09:00  morning
     (  630, 255,  5800),  # 10:30  full day
@@ -36,9 +36,8 @@ _CURVE: list[tuple[int, int, int]] = [
     (  990, 245,  5000),  # 16:30  afternoon
     ( 1050, 210,  3400),  # 17:30  golden hour
     ( 1080, 160,  2600),  # 18:00  sunset amber
-    ( 1140,   5,  2500),  # 19:00  dusk
-    ( 1230,   1,  2700),  # 20:30  night
-    ( 1440,   1,  2700),  # 24:00  midnight (= start)
+    ( 1140,   0,  2500),  # 19:00  dusk — off
+    ( 1440,   0,  2700),  # 24:00  midnight (= start)
 ]
 
 

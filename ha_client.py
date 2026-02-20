@@ -40,14 +40,20 @@ class HomeAssistantClient:
     # ── Public API ───────────────────────────────────────────────────────────
 
     def set_light(self, brightness: int, color_temp_kelvin: int) -> None:
-        """Set brightness and colour temperature.  Ignores network errors."""
-        mireds = _kelvin_to_mireds(color_temp_kelvin)
-        self._call("turn_on", {
-            "entity_id": self.entity_id,
-            "brightness": brightness,
-            "color_temp": mireds,
-            "transition": self.transition,
-        })
+        """Set brightness and colour temperature.  brightness=0 turns the light off."""
+        if brightness == 0:
+            self._call("turn_off", {
+                "entity_id": self.entity_id,
+                "transition": self.transition,
+            })
+        else:
+            mireds = _kelvin_to_mireds(color_temp_kelvin)
+            self._call("turn_on", {
+                "entity_id": self.entity_id,
+                "brightness": brightness,
+                "color_temp": mireds,
+                "transition": self.transition,
+            })
 
     def reset_to_default(self) -> None:
         """Restore the bulb to its default white/100% state (FR04)."""
