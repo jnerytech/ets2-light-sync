@@ -1,0 +1,37 @@
+# Project Plan (EN)
+
+## 1. Overview
+Implementation of a Python middleware to sync an Elgin smart bulb (via Home Assistant) with the Euro Truck Simulator 2 (ETS2) time cycle, creating an immersive simulation experience.
+
+## 2. Problem Statement
+Visual inconsistency between the user's real environment and the virtual simulator environment during day/night transitions, affecting immersion.
+
+## 3. Audience and Users
+- Personal project for domestic use.
+
+## 4. Functional Requirements
+- **FR01:** Telemetry reading via Shared Memory (SCS SDK) to retrieve `game_time`.
+- **FR02:** Dynamic calculation of brightness and color temperature based on dawn/dusk curves.
+- **FR03:** Sending HTTP commands via REST API to Home Assistant on the local network.
+- **FR04:** **(New)** Cleanup Function: Upon closing the script or detecting game shutdown, the bulb must return to its "default white/100%" state.
+- **FR05:** **(New)** Smooth Transition: Support for high update frequency (adjustable in .env) to prevent brightness "jumps".
+
+## 5. Non-Functional Requirements
+- **NFR01:** Direct local IP connectivity (no external cloud needed for commands).
+- **NFR02:** Configuration via `.env` file for easy sensitivity and ID adjustments.
+- **NFR03:** Stability: The script must ignore temporary network failures and continue sync attempts.
+
+## 6. Proposed Architecture
+1. **Data Layer (ETS2):** Plugin DLL exposes data in shared memory.
+2. **Logic Layer (Python):** Script processes time, applies the curve, and decides if a command should be sent.
+3. **Execution Layer (Home Assistant):** Receives POST and triggers the bulb via local Wi-Fi.
+
+## 7. Suggested Technologies
+- **Language:** Python 3.10+
+- **Communication:** `requests` (HTTP POST) and `truck-telemetry`.
+- **Hardware:** Orange Pi (HA Host), Windows PC (Game Host), Elgin Smart Bulb.
+
+## 8. Roadmap**
+- **Phase 1 (MVP):** Communication test script (HA <-> Python) and raw telemetry reading.
+- **Phase 2 (Transition):** Implementation of interpolation formulas for gradual brightness (smoothness).
+- **Phase 3 (Finalization):** Implementation of automatic Reset (Cleanup) and packaging for easy execution before gameplay.
