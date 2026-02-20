@@ -3,7 +3,7 @@
 $Version = (Get-Content -Path VERSION -Raw).Trim()
 $tag = "v$Version"
 
-# Error if the tag already exists locally or on the remote
+# Error if the tag already exists
 $existing = git tag --list $tag
 if ($existing) {
     Write-Error "Tag $tag already exists. Update VERSION and try again."
@@ -17,8 +17,9 @@ git push origin master
 git push origin $tag
 
 $remote = git remote get-url origin
-if ($remote -match '(?<=github\.com[/:])[^/]+/[^.]+') {
-    Write-Host "Released $tag — https://github.com/$($Matches[0])/actions"
+$match = [regex]::Match($remote, '(?<=github\.com[/:])[^/]+/[^.]+')
+if ($match.Success) {
+    Write-Host "Released $tag -> https://github.com/$($match.Value)/actions"
 } else {
     Write-Host "Released $tag"
 }
