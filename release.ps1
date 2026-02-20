@@ -1,12 +1,14 @@
-# Usage: .\release.ps1 1.0.0
-param(
-    [Parameter(Mandatory)]
-    [string]$Version
-)
+# Edit VERSION, then run .\release.ps1 to commit, tag, and push.
 
+$Version = (Get-Content -Path VERSION -Raw).Trim()
 $tag = "v$Version"
 
-Set-Content -Path VERSION -Value $Version
+# Error if the tag already exists locally or on the remote
+$existing = git tag --list $tag
+if ($existing) {
+    Write-Error "Tag $tag already exists. Update VERSION and try again."
+    exit 1
+}
 
 git add -A
 git commit -m "Release $tag"
@@ -14,4 +16,9 @@ git tag $tag
 git push origin master
 git push origin $tag
 
-Write-Host "Released $tag — check Actions: https://github.com/$(git remote get-url origin | Select-String '(?<=github\.com[/:])[^/]+/[^/]+(?=\.git|$)' | ForEach-Object { $_.Matches.Value })/actions"
+$remote = git remote get-url origin
+if ($remote -match '(?<=github\.com[/:])[^/]+/[^.]+') {
+    Write-Host "Released $tag — https://github.com/$($Matches[0])/actions"
+} else {
+    Write-Host "Released $tag"
+}
