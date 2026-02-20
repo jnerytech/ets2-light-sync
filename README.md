@@ -12,8 +12,32 @@ and warms to amber during the golden hour before sunset.
 
 - Windows 10/11
 - Python 3.11+
-- [SCS SDK telemetry plugin](https://github.com/RenCloud/scs-sdk-plugin) installed in ETS2
-- A Home Assistant instance with a long-lived access token
+- **[SCS SDK Telemetry Plugin](https://github.com/RenCloud/scs-sdk-plugin)** — must be installed in ETS2 (see below)
+- **[Home Assistant](https://www.home-assistant.io/)** — running on your local network with a smart light configured
+
+---
+
+## Dependencies
+
+### SCS SDK Telemetry Plugin
+
+> **Required.** Without this plugin ETS2 does not expose any telemetry and the sync cannot read the in-game time.
+
+1. Download the latest release from [github.com/RenCloud/scs-sdk-plugin](https://github.com/RenCloud/scs-sdk-plugin/releases)
+2. Copy `win_x64/scs-telemetry.dll` into your ETS2 plugin folder:
+   ```
+   %USERPROFILE%\Documents\Euro Truck Simulator 2\plugins\
+   ```
+   (create the `plugins` folder if it doesn't exist)
+3. Launch ETS2 — the plugin activates automatically, no in-game setting needed.
+
+### Home Assistant
+
+> **Required.** The app sends light commands to a HA instance on your local network via its REST API.
+
+1. In HA go to **Profile → Long-Lived Access Tokens** and create a token.
+2. Note the URL of your HA instance (e.g. `http://192.168.1.100:8123`) and the entity ID of your light (e.g. `light.desk`).
+3. Enter both in **⚙ Settings** when you first launch the app.
 
 ---
 

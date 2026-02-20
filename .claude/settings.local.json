@@ -6,7 +6,9 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "mcp__ide__getDiagnostics",
-      "Bash(.venv/Scripts/python:*)"
+      "Bash(.venv/Scripts/python:*)",
+      "Bash(New-Item -ItemType Directory -Path \"D:\\\\repos\\\\ets2-light-sync\\\\.github\\\\workflows\" -Force)",
+      "Bash(powershell.exe -Command \"New-Item -ItemType Directory -Path ''D:\\\\repos\\\\ets2-light-sync\\\\.github\\\\workflows'' -Force\")"
     ]
   }
 }
