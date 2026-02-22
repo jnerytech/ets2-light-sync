@@ -27,7 +27,7 @@ class HomeAssistantClient:
         self.entity_id = os.getenv("ENTITY_ID", "light.luz")
         self.transition = float(os.getenv("TRANSITION_TIME", "1"))
         self.default_brightness = int(os.getenv("DEFAULT_BRIGHTNESS", "255"))
-        self.default_color_temp_k = int(os.getenv("DEFAULT_COLOR_TEMP_K", "4000"))
+        self.default_color_temp_k = int(os.getenv("DEFAULT_COLOR_TEMP_K", "6500"))
 
         if not self.token:
             raise ValueError("HA_TOKEN is not set. Add it to your .env file.")

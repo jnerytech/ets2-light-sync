@@ -17,7 +17,7 @@ _DEFAULTS: dict[str, Any] = {
     "poll_interval": 5,
     "transition_time": 5,
     "default_brightness": 255,
-    "default_color_temp_k": 4000,
+    "default_color_temp_k": 6500,
     "theme": "System",
     # Simulation mode
     "sim_mode": False,

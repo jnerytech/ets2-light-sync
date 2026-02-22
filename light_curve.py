@@ -6,19 +6,15 @@ colour temperature using a multi-waypoint curve with cosine easing between
 every segment.
 
 Curve waypoints  (all times in game-minutes since midnight):
-  00:00  Midnight    →   8 br   2700 K   dark neutral
-  05:30  Night end   →   8 br   2700 K   dark neutral
-  06:30  Sunrise     →  14 br   2100 K   warm amber burst
-  07:30  Morning     →  70 br   3000 K   soft warm light
-  09:00  Late morn.  → 220 br   4500 K   warming to day
-  10:30  Full day    → 255 br   5800 K   cool bright
-  14:30  Midday      → 255 br   6000 K   peak cool white
-  16:30  Afternoon   → 245 br   5000 K   slight shift
-  17:30  Golden hour → 210 br   3400 K   amber/warm
-  18:00  Sunset      → 160 br   2600 K   deep amber
-  19:00  Dusk        →  18 br   2500 K   rapidly darkening
-  20:30  Night       →   8 br   2700 K   dark neutral
-  24:00  Midnight    →   8 br   2700 K   (wraps to start)
+  00:00  Midnight    →   0 br   2700 K   off
+  04:30  Night end   →   0 br   2700 K   off — start of slow rise
+  05:30  Dawn        →  25 br   2200 K   warm amber, slowly brightening
+  06:00  Full day    → 255 br   5500 K   clear bright
+  12:00  Midday      → 255 br   6000 K   peak cool white
+  18:00  Sunset      → 255 br   5200 K   begin darkening
+  19:00  Dusk        →  50 br   2800 K   rapidly dimming
+  20:00  Night       →   0 br   2700 K   off
+  24:00  Midnight    →   0 br   2700 K   (wraps to start)
 """
 
 import math
@@ -27,16 +23,13 @@ import math
 # Each entry: (minutes_since_midnight, brightness 0–255, colour_temp_kelvin)
 _CURVE: list[tuple[int, int, int]] = [
     (    0,   0,  2700),  # 00:00  midnight       — off
-    (  330,   0,  2700),  # 05:30  night end      — off
-    (  390,  14,  2100),  # 06:30  sunrise — warm amber, fades in
-    (  450,  70,  3000),  # 07:30  early morning
-    (  540, 220,  4500),  # 09:00  morning
-    (  630, 255,  5800),  # 10:30  full day
-    (  870, 255,  6000),  # 14:30  midday peak (cool)
-    (  990, 245,  5000),  # 16:30  afternoon
-    ( 1050, 210,  3400),  # 17:30  golden hour
-    ( 1080, 160,  2600),  # 18:00  sunset amber
-    ( 1140,   0,  2500),  # 19:00  dusk — off
+    (  270,   0,  2700),  # 04:30  night end      — off, start rising
+    (  330,  25,  2200),  # 05:30  dawn — warm amber, slowly brightening
+    (  360, 255,  5500),  # 06:00  full day — clear bright
+    (  720, 255,  6000),  # 12:00  midday peak (cool)
+    ( 1080, 255,  5200),  # 18:00  start darkening
+    ( 1140,  50,  2800),  # 19:00  dusk — dimming fast
+    ( 1200,   0,  2700),  # 20:00  off
     ( 1440,   0,  2700),  # 24:00  midnight (= start)
 ]
 
