@@ -39,26 +39,33 @@ def _smooth(t: float) -> float:
     return (1.0 - math.cos(t * math.pi)) / 2.0
 
 
-def calculate_light(game_time_minutes: int) -> tuple[int, int]:
+def calculate_light(
+    game_time_minutes: int,
+    curve: list | None = None,
+) -> tuple[int, int]:
     """Return ``(brightness, colour_temp_kelvin)`` for the given game time.
 
     Parameters
     ----------
     game_time_minutes:
         Minutes since midnight, range 0–1439 (normalised via modulo).
+    curve:
+        Optional list of ``(minutes, brightness, kelvin)`` waypoints.
+        Defaults to the built-in ``_CURVE`` when ``None``.
 
     Returns
     -------
     tuple[int, int]
         ``brightness`` in 0–255 and ``colour_temp_kelvin`` in Kelvin.
     """
+    c = _CURVE if curve is None else curve
     t = game_time_minutes % 1440
 
-    for i in range(len(_CURVE) - 1):
-        t0, b0, k0 = _CURVE[i]
-        t1, b1, k1 = _CURVE[i + 1]
+    for i in range(len(c) - 1):
+        t0, b0, k0 = c[i]
+        t1, b1, k1 = c[i + 1]
         if t0 <= t < t1:
             p = _smooth((t - t0) / (t1 - t0))
             return round(b0 + p * (b1 - b0)), round(k0 + p * (k1 - k0))
 
-    return _CURVE[0][1], _CURVE[0][2]
+    return c[0][1], c[0][2]

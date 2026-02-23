@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
@@ -18,6 +20,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app import config
+from app.curve_editor import CurveEditorDialog
+from light_curve import _CURVE as _DEFAULT_CURVE
 
 
 class SettingsDialog(QDialog):
@@ -27,6 +31,8 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(400)
 
         self._cfg = config.load()
+        # Custom curve: None = use built-in default; list-of-lists = user-edited
+        self._light_curve: list | None = self._cfg.get("light_curve")
 
         # ── Home Assistant fields ─────────────────────────────────────────────
         self._ha_url = QLineEdit(self._cfg.get("ha_url", ""))
@@ -95,6 +101,18 @@ class SettingsDialog(QDialog):
         sim_layout.addWidget(self._sim_mode)
         sim_layout.addWidget(self._sim_group)
 
+        # ── Light curve ───────────────────────────────────────────────────────
+        self._curve_status = QLabel()
+        self._refresh_curve_label()
+        edit_curve_btn = QPushButton("Edit Light Curve…")
+        edit_curve_btn.clicked.connect(self._open_curve_editor)  # type: ignore[misc]
+        curve_row = QHBoxLayout()
+        curve_row.addWidget(self._curve_status)
+        curve_row.addStretch()
+        curve_row.addWidget(edit_curve_btn)
+        curve_group = QGroupBox("Light Curve")
+        curve_group.setLayout(curve_row)
+
         # ── Dialog layout ─────────────────────────────────────────────────────
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -110,9 +128,26 @@ class SettingsDialog(QDialog):
         layout.addLayout(ha_form)
         layout.addSpacing(8)
         layout.addLayout(sim_layout)
+        layout.addSpacing(8)
+        layout.addWidget(curve_group)
         layout.addWidget(buttons)
 
     # ── Private ───────────────────────────────────────────────────────────────
+
+    def _refresh_curve_label(self) -> None:
+        if self._light_curve is None:
+            self._curve_status.setText(f"Using built-in default  ({len(_DEFAULT_CURVE)} waypoints)")
+            self._curve_status.setStyleSheet("color: #778899;")
+        else:
+            self._curve_status.setText(f"Custom curve  ({len(self._light_curve)} waypoints)")
+            self._curve_status.setStyleSheet("")
+
+    def _open_curve_editor(self) -> None:
+        wps = self._light_curve if self._light_curve is not None else list(_DEFAULT_CURVE)
+        dlg = CurveEditorDialog(wps, self)
+        if dlg.exec():
+            self._light_curve = dlg.get_waypoints()
+            self._refresh_curve_label()
 
     def _reset_to_defaults(self) -> None:
         d = config._DEFAULTS
@@ -126,6 +161,8 @@ class SettingsDialog(QDialog):
         self._sim_mode.setChecked(bool(d["sim_mode"]))
         self._sim_time_start.setValue(int(d["sim_time_start"]))
         self._sim_time_speed.setValue(float(d["sim_time_speed"]))
+        self._light_curve = None
+        self._refresh_curve_label()
 
     def _save_and_accept(self) -> None:
         data = {
@@ -139,6 +176,7 @@ class SettingsDialog(QDialog):
             "sim_mode": self._sim_mode.isChecked(),
             "sim_time_start": self._sim_time_start.value(),
             "sim_time_speed": self._sim_time_speed.value(),
+            "light_curve": self._light_curve,
         }
         config.save(data)
         self.accept()

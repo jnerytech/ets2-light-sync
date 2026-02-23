@@ -66,6 +66,10 @@ class SyncWorker(QThread):
             self.status_changed.emit("error")
             return
 
+        # Load custom light curve (list-of-lists from JSON → list-of-tuples)
+        raw_curve = cfg.get("light_curve")
+        curve = [tuple(wp) for wp in raw_curve] if raw_curve else None
+
         sim_mode = bool(cfg.get("sim_mode", False))
         sim_start = int(cfg.get("sim_time_start", 360))
         sim_speed = float(cfg.get("sim_time_speed", 60.0))
@@ -102,7 +106,7 @@ class SyncWorker(QThread):
                     game_was_running = True
                     self.status_changed.emit("connected")
 
-                brightness, color_temp = calculate_light(game_time)
+                brightness, color_temp = calculate_light(game_time, curve)
                 if brightness == 0:
                     log.info("Game %02d:%02d  →  off", game_time // 60, game_time % 60)
                 else:

@@ -18,6 +18,7 @@ _DEFAULTS: dict[str, Any] = {
     "transition_time": 5,
     "default_brightness": 255,
     "default_color_temp_k": 6500,
+    "light_curve": None,   # None = use built-in default from light_curve.py
     "theme": "System",
     # Simulation mode
     "sim_mode": False,
