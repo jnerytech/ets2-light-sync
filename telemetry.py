@@ -1,9 +1,9 @@
 """
 telemetry.py – ETS2 shared memory reader.
 
-Reads game time from the RenCloud scs-sdk-plugin's named shared memory
-(Local\\SCSTelemetry).  Only works when run on the same Windows machine
-as Euro Truck Simulator 2 with the telemetry plugin installed.
+Reads game time and truck world position from the RenCloud scs-sdk-plugin's
+named shared memory (Local\\SCSTelemetry).  Only works when run on the same
+Windows machine as Euro Truck Simulator 2 with the telemetry plugin installed.
 
 Plugin: https://github.com/RenCloud/scs-sdk-plugin
 
@@ -25,6 +25,10 @@ Shared memory layout (scsTelemetryMap_s, no #pragma pack):
     56  u32       telemetry_version_game_major│
     60  u32       telemetry_version_game_minor┘
     64  u32       time_abs    ← in-game time in MINUTES since game epoch ✓
+  Zone 8  (offsets 2200+)  – truck world placement (double precision)
+    2200  double  coordinateX   ← World East  (game units ≈ metres at 1:19 scale)
+    2208  double  coordinateY   ← World Up    (altitude; not used here)
+    2216  double  coordinateZ   ← World South (game units)
 """
 
 import logging
@@ -37,14 +41,19 @@ log = logging.getLogger(__name__)
 _SHARED_MEM_NAME = "Local\\SCSTelemetry"
 _SHARED_MEM_SIZE = 32 * 1024  # struct is ~6 KB; 32 KB gives headroom
 
-_SDK_ACTIVE_OFFSET = 0   # bool  sdkActive
-_PAUSED_OFFSET = 4       # bool  paused
-_TIME_ABS_OFFSET = 64    # u32   time_abs – in-game minutes since epoch
+_SDK_ACTIVE_OFFSET = 0   # bool    sdkActive
+_PAUSED_OFFSET = 4       # bool    paused
+_TIME_ABS_OFFSET = 64    # u32     time_abs – in-game minutes since epoch
+_TRUCK_X_OFFSET = 2200   # double  truck_dp.coordinateX – World East
+_TRUCK_Z_OFFSET = 2216   # double  truck_dp.coordinateZ – World South
+_SHARED_MEM_READ_SIZE = 2224  # 2216 + 8 bytes for the Z double
 
 
 class Telemetry(NamedTuple):
     game_time: int   # minutes since midnight, 0–1439
     paused: bool     # True when game simulation is paused
+    truck_x: float   # World East coordinate (game units); float('nan') when unavailable
+    truck_z: float   # World South coordinate (game units); float('nan') when unavailable
 
 
 def get_telemetry() -> Optional[Telemetry]:
@@ -98,8 +107,8 @@ def _read_shared_memory() -> Optional[Telemetry]:
                 return None
 
             try:
-                # Read just enough bytes to cover time_abs (offset 64, 4 bytes)
-                raw = (ctypes.c_char * 68).from_address(ptr)
+                # Read enough bytes to cover truck world position (offset 2216 + 8)
+                raw = (ctypes.c_char * _SHARED_MEM_READ_SIZE).from_address(ptr)
                 data = bytes(raw)
 
                 sdk_active = struct.unpack_from("?", data, _SDK_ACTIVE_OFFSET)[0]
@@ -108,7 +117,14 @@ def _read_shared_memory() -> Optional[Telemetry]:
 
                 paused = struct.unpack_from("?", data, _PAUSED_OFFSET)[0]
                 time_abs = struct.unpack_from("<I", data, _TIME_ABS_OFFSET)[0]
-                return Telemetry(game_time=time_abs % 1440, paused=paused)
+                truck_x = struct.unpack_from("<d", data, _TRUCK_X_OFFSET)[0]
+                truck_z = struct.unpack_from("<d", data, _TRUCK_Z_OFFSET)[0]
+                return Telemetry(
+                    game_time=time_abs % 1440,
+                    paused=paused,
+                    truck_x=truck_x,
+                    truck_z=truck_z,
+                )
             finally:
                 kernel32.UnmapViewOfFile(ptr)
         finally:

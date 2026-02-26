@@ -24,6 +24,8 @@ _DEFAULTS: dict[str, Any] = {
     "sim_mode": False,
     "sim_time_start": 360,   # minutes since midnight (06:00)
     "sim_time_speed": 60.0,  # game-minutes per real-second
+    # Timezone-aware brightness
+    "timezone_aware": True,  # adjust brightness curve for truck's local timezone
 }
 
 

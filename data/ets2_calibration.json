@@ -1,0 +1,33 @@
+{
+  "_comment": "ETS2 world-space to real-world lat/lon calibration reference. Two anchor cities used to derive the linear conversion constants in location.py.",
+  "reference_points": [
+    {
+      "city": "Paris",
+      "country": "France",
+      "ets2_x": -31600,
+      "ets2_z": -62000,
+      "real_lat": 48.8566,
+      "real_lon": 2.3522
+    },
+    {
+      "city": "Berlin",
+      "country": "Germany",
+      "ets2_x": 17400,
+      "ets2_z": -39200,
+      "real_lat": 52.5200,
+      "real_lon": 13.4050
+    }
+  ],
+  "derived": {
+    "scale_lon_deg_per_unit": 0.00022548,
+    "scale_lat_deg_per_unit": 0.00016074,
+    "ref_point": "Paris",
+    "notes": [
+      "scale_lon = (Berlin_lon - Paris_lon) / (Berlin_x - Paris_x)",
+      "scale_lat = (Berlin_lat - Paris_lat) / (Berlin_z - Paris_z)",
+      "In the ETS2 Europe map, less-negative Z = further north, so lat = ref_lat + (z - ref_z) * scale_lat",
+      "lon = ref_lon + (x - ref_x) * scale_lon",
+      "Map scale is approximately 1:19 (ETS2 Europe map)"
+    ]
+  }
+}

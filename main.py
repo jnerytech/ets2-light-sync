@@ -28,7 +28,8 @@ from dotenv import load_dotenv
 
 from ha_client import HomeAssistantClient
 from light_curve import calculate_light
-from telemetry import get_game_time
+from location import get_timezone_offset, reset_cache
+from telemetry import get_telemetry
 
 load_dotenv()
 
@@ -37,6 +38,7 @@ POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "15"))   # seconds (FR05)
 SIM_MODE = os.getenv("SIM_MODE", "0") == "1"
 SIM_TIME_START = int(os.getenv("SIM_TIME_START", "360"))   # 06:00
 SIM_TIME_SPEED = float(os.getenv("SIM_TIME_SPEED", "60"))  # game-min per real-sec
+TIMEZONE_AWARE = os.getenv("TIMEZONE_AWARE", "1") == "1"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -77,8 +79,12 @@ def _fmt(minutes: int) -> str:
 def main() -> None:
     global _sim_epoch
 
-    log.info("ETS2 Light Sync starting  [poll=%.1fs%s]",
-             POLL_INTERVAL, ", SIM MODE" if SIM_MODE else "")
+    log.info(
+        "ETS2 Light Sync starting  [poll=%.1fs%s%s]",
+        POLL_INTERVAL,
+        ", SIM MODE" if SIM_MODE else "",
+        ", TZ-aware" if TIMEZONE_AWARE else "",
+    )
 
     client = HomeAssistantClient()
     _sim_epoch = time.monotonic()
@@ -86,17 +92,26 @@ def main() -> None:
     game_was_running = False
 
     while _running:
-        # ── Get current game time ──────────────────────────────────────────
+        # ── Get current game time and truck position ───────────────────────
         if SIM_MODE:
             game_time: Optional[int] = _sim_time()
+            truck_x = truck_z = float("nan")
         else:
-            game_time = get_game_time()
+            telemetry = get_telemetry()
+            if telemetry is None:
+                game_time = None
+                truck_x = truck_z = float("nan")
+            else:
+                game_time = telemetry.game_time
+                truck_x   = telemetry.truck_x
+                truck_z   = telemetry.truck_z
 
         # ── Handle game connect / disconnect ──────────────────────────────
         if game_time is None:
             if game_was_running:
                 log.info("Game disconnected — resetting light")
                 client.reset_to_default()
+                reset_cache()
                 game_was_running = False
             time.sleep(POLL_INTERVAL)
             continue
@@ -105,13 +120,23 @@ def main() -> None:
             log.info("Game connected")
             game_was_running = True
 
+        # ── Timezone offset ────────────────────────────────────────────────
+        tz_offset = 0
+        if TIMEZONE_AWARE:
+            tz_offset, tz_name = get_timezone_offset(truck_x, truck_z)
+            if tz_name:
+                log.debug("TZ: %s  UTC%+.1f", tz_name, tz_offset / 60)
+
         # ── Calculate and apply light settings every poll ─────────────────
         assert isinstance(game_time, int)
-        brightness, color_temp = calculate_light(game_time)
+        brightness, color_temp = calculate_light(
+            game_time, timezone_offset_minutes=tz_offset
+        )
+        local_time = (game_time + tz_offset) % 1440
 
         log.info(
-            "Game %s  →  brightness=%3d/255  color_temp=%dK",
-            _fmt(game_time), brightness, color_temp,
+            "Game %s  Local %s  →  brightness=%3d/255  color_temp=%dK",
+            _fmt(game_time), _fmt(local_time), brightness, color_temp,
         )
         client.set_light(brightness, color_temp)
 

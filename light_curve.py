@@ -42,6 +42,7 @@ def _smooth(t: float) -> float:
 def calculate_light(
     game_time_minutes: int,
     curve: list | None = None,
+    timezone_offset_minutes: int = 0,
 ) -> tuple[int, int]:
     """Return ``(brightness, colour_temp_kelvin)`` for the given game time.
 
@@ -52,6 +53,11 @@ def calculate_light(
     curve:
         Optional list of ``(minutes, brightness, kelvin)`` waypoints.
         Defaults to the built-in ``_CURVE`` when ``None``.
+    timezone_offset_minutes:
+        UTC offset in minutes to add before applying the curve.
+        Positive values shift the clock forward (east of UTC), so sunrise
+        and sunset appear later in game-time terms.
+        Default 0 preserves the original behaviour.
 
     Returns
     -------
@@ -59,7 +65,7 @@ def calculate_light(
         ``brightness`` in 0–255 and ``colour_temp_kelvin`` in Kelvin.
     """
     c = _CURVE if curve is None else curve
-    t = game_time_minutes % 1440
+    t = (game_time_minutes + timezone_offset_minutes) % 1440
 
     for i in range(len(c) - 1):
         t0, b0, k0 = c[i]

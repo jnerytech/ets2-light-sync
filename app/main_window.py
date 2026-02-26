@@ -64,10 +64,12 @@ class MainWindow(QMainWindow):
         self._status_label.setStyleSheet("font-weight: bold;")
 
         self._values_label = QLabel("Brightness: --   Color temp: --")
+        self._tz_label = QLabel("Timezone: --")
 
         status_layout = QVBoxLayout()
         status_layout.addWidget(self._status_label)
         status_layout.addWidget(self._values_label)
+        status_layout.addWidget(self._tz_label)
         root.addLayout(status_layout)
 
         # ── Button row ────────────────────────────────────────────────────────
@@ -161,18 +163,32 @@ class MainWindow(QMainWindow):
         if status in ("stopped", "error"):
             self._on_worker_finished()
 
-    def _on_light_updated(self, game_time: int, brightness: int, kelvin: int) -> None:
+    def _on_light_updated(
+        self, game_time: int, brightness: int, kelvin: int, tz_offset: int, tz_name: str
+    ) -> None:
         game_str = f"{game_time // 60:02d}:{game_time % 60:02d}"
-        self._status_label.setText(f"● Game connected   Game: {game_str}")
+        local_min = (game_time + tz_offset) % 1440
+        local_str = f"{local_min // 60:02d}:{local_min % 60:02d}"
+        self._status_label.setText(
+            f"● Game connected   Game: {game_str}   Local: {local_str}"
+        )
         self._values_label.setText(
             f"Brightness: {brightness}/255   Color temp: {kelvin} K"
         )
+        if tz_name:
+            h, m = divmod(abs(tz_offset), 60)
+            sign = "+" if tz_offset >= 0 else "-"
+            tz_str = f"UTC{sign}{h}" if m == 0 else f"UTC{sign}{h}:{m:02d}"
+            self._tz_label.setText(f"Timezone: {tz_name}  ({tz_str})")
+        else:
+            self._tz_label.setText("Timezone: unknown")
 
     def _on_worker_finished(self) -> None:
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
         self._tray.set_running(False)
         self._values_label.setText("Brightness: --   Color temp: --")
+        self._tz_label.setText("Timezone: --")
 
     def _append_log(self, msg: str) -> None:
         self._log_view.appendPlainText(msg)

@@ -15,7 +15,8 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from app.config import load as load_config
 from ha_client import HomeAssistantClient
 from light_curve import calculate_light
-from telemetry import get_game_time
+from location import get_timezone_offset, reset_cache
+from telemetry import get_telemetry
 
 def _sim_time(start: int, speed: float, epoch: float) -> int:
     """Return simulated game time (0–1439 min) based on wall clock."""
@@ -28,8 +29,8 @@ log = logging.getLogger(__name__)
 class SyncWorker(QThread):
     """Background thread that polls ETS2 telemetry and drives HA lights."""
 
-    status_changed = pyqtSignal(str)           # "running" | "connected" | "waiting" | "stopped" | "error"
-    light_updated = pyqtSignal(int, int, int)  # game_time_min, brightness, kelvin
+    status_changed = pyqtSignal(str)                    # "running" | "connected" | "waiting" | "stopped" | "error"
+    light_updated = pyqtSignal(int, int, int, int, str) # game_time_min, brightness, kelvin, tz_offset_min, tz_name
 
     def __init__(self) -> None:
         super().__init__()
@@ -74,6 +75,7 @@ class SyncWorker(QThread):
         sim_start = int(cfg.get("sim_time_start", 360))
         sim_speed = float(cfg.get("sim_time_speed", 60.0))
         sim_epoch = time.monotonic()
+        timezone_aware = bool(cfg.get("timezone_aware", True))
         # In sim mode, always poll at 1 s so transitions look smooth regardless
         # of the configured poll interval (which is tuned for real gameplay).
         poll_interval = 1.0 if sim_mode else float(cfg.get("poll_interval", 5))
@@ -91,13 +93,22 @@ class SyncWorker(QThread):
         while self._running:
             if sim_mode:
                 game_time: Optional[int] = _sim_time(sim_start, sim_speed, sim_epoch)
+                truck_x = truck_z = float("nan")
             else:
-                game_time = get_game_time()
+                telemetry = get_telemetry()
+                if telemetry is None:
+                    game_time = None
+                    truck_x = truck_z = float("nan")
+                else:
+                    game_time = telemetry.game_time
+                    truck_x   = telemetry.truck_x
+                    truck_z   = telemetry.truck_z
 
             if game_time is None:
                 if game_was_running:
                     log.info("Game disconnected — resetting light")
                     client.reset_to_default()
+                    reset_cache()
                     game_was_running = False
                     self.status_changed.emit("waiting")
             else:
@@ -106,16 +117,31 @@ class SyncWorker(QThread):
                     game_was_running = True
                     self.status_changed.emit("connected")
 
-                brightness, color_temp = calculate_light(game_time, curve)
+                tz_offset = 0
+                tz_name   = ""
+                if timezone_aware:
+                    tz_offset, tz_name_or_none = get_timezone_offset(truck_x, truck_z)
+                    tz_name = tz_name_or_none or ""
+
+                brightness, color_temp = calculate_light(
+                    game_time, curve, timezone_offset_minutes=tz_offset
+                )
+                local_min = (game_time + tz_offset) % 1440
                 if brightness == 0:
-                    log.info("Game %02d:%02d  →  off", game_time // 60, game_time % 60)
+                    log.info(
+                        "Game %02d:%02d  Local %02d:%02d  →  off",
+                        game_time // 60, game_time % 60,
+                        local_min // 60, local_min % 60,
+                    )
                 else:
                     log.info(
-                        "Game %02d:%02d  →  brightness=%3d/255  color_temp=%dK",
-                        game_time // 60, game_time % 60, brightness, color_temp,
+                        "Game %02d:%02d  Local %02d:%02d  →  brightness=%3d/255  color_temp=%dK",
+                        game_time // 60, game_time % 60,
+                        local_min // 60, local_min % 60,
+                        brightness, color_temp,
                     )
                 client.set_light(brightness, color_temp)
-                self.light_updated.emit(game_time, brightness, color_temp)
+                self.light_updated.emit(game_time, brightness, color_temp, tz_offset, tz_name)
 
             # Sleep in 0.5 s increments so stop() is responsive.
             elapsed = 0.0
