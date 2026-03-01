@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSystemTrayIcon,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -26,6 +27,7 @@ from PyQt6.QtWidgets import (
 from app import config, theme
 from app.icon import make_icon
 from app.log_handler import QtLogHandler
+from app.map_widget import MapPanel
 from app.settings_dialog import SettingsDialog
 from app.sync_worker import SyncWorker
 from app.tray_icon import TrayIcon
@@ -39,7 +41,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ETS2 Light Sync")
-        self.setMinimumSize(640, 480)
+        self.setMinimumSize(700, 520)
 
         self._worker: SyncWorker | None = None
 
@@ -56,21 +58,8 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
-        root.setSpacing(8)
-        root.setContentsMargins(10, 10, 10, 10)
-
-        # ── Status row ────────────────────────────────────────────────────────
-        self._status_label = QLabel("● Waiting for game   Game: --:--")
-        self._status_label.setStyleSheet("font-weight: bold;")
-
-        self._values_label = QLabel("Brightness: --   Color temp: --")
-        self._tz_label = QLabel("Timezone: --")
-
-        status_layout = QVBoxLayout()
-        status_layout.addWidget(self._status_label)
-        status_layout.addWidget(self._values_label)
-        status_layout.addWidget(self._tz_label)
-        root.addLayout(status_layout)
+        root.setSpacing(4)
+        root.setContentsMargins(8, 8, 8, 8)
 
         # ── Button row ────────────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
@@ -102,7 +91,26 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self._theme_combo)
         root.addLayout(btn_layout)
 
-        # ── Log area ──────────────────────────────────────────────────────────
+        # ── Tab widget ────────────────────────────────────────────────────────
+        tabs = QTabWidget()
+
+        # Tab 1: Sync status + log
+        sync_tab = QWidget()
+        sync_layout = QVBoxLayout(sync_tab)
+        sync_layout.setSpacing(6)
+        sync_layout.setContentsMargins(0, 6, 0, 0)
+
+        self._status_label = QLabel("● Waiting for game   Game: --:--")
+        self._status_label.setStyleSheet("font-weight: bold;")
+        self._values_label = QLabel("Brightness: --   Color temp: --")
+        self._tz_label     = QLabel("Timezone: --")
+        self._country_label = QLabel("Country: --")
+
+        sync_layout.addWidget(self._status_label)
+        sync_layout.addWidget(self._values_label)
+        sync_layout.addWidget(self._tz_label)
+        sync_layout.addWidget(self._country_label)
+
         self._log_view = QPlainTextEdit()
         self._log_view.setReadOnly(True)
         mono = QFont("Consolas", 9)
@@ -111,7 +119,15 @@ class MainWindow(QMainWindow):
         self._log_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        root.addWidget(self._log_view)
+        sync_layout.addWidget(self._log_view)
+
+        tabs.addTab(sync_tab, "Sync")
+
+        # Tab 2: Map + simulation
+        self._map_panel = MapPanel()
+        tabs.addTab(self._map_panel, "Map")
+
+        root.addWidget(tabs)
 
     def _setup_logging(self) -> None:
         self._log_handler = QtLogHandler()
@@ -128,6 +144,7 @@ class MainWindow(QMainWindow):
         self._worker = SyncWorker()
         self._worker.status_changed.connect(self._on_status_changed)
         self._worker.light_updated.connect(self._on_light_updated)
+        self._worker.position_updated.connect(self._map_panel.on_position_updated)
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
         self._start_btn.setEnabled(False)
@@ -143,19 +160,19 @@ class MainWindow(QMainWindow):
 
     def _on_status_changed(self, status: str) -> None:
         icons = {
-            "running": "○",
+            "running":   "○",
             "connected": "●",
-            "waiting": "○",
-            "stopped": "■",
-            "error": "✕",
+            "waiting":   "○",
+            "stopped":   "■",
+            "error":     "✕",
         }
         icon = icons.get(status, "●")
         labels = {
-            "running": "Running — waiting for game",
+            "running":   "Running — waiting for game",
             "connected": "Game connected",
-            "waiting": "Game disconnected",
-            "stopped": "Stopped",
-            "error": "Error — check settings",
+            "waiting":   "Game disconnected",
+            "stopped":   "Stopped",
+            "error":     "Error — check settings",
         }
         text = labels.get(status, status)
         self._status_label.setText(f"{icon} {text}")
@@ -164,24 +181,21 @@ class MainWindow(QMainWindow):
             self._on_worker_finished()
 
     def _on_light_updated(
-        self, game_time: int, brightness: int, kelvin: int, tz_offset: int, tz_name: str
+        self, game_time: int, brightness: int, kelvin: int, tz_name: str, country_name: str
     ) -> None:
         game_str = f"{game_time // 60:02d}:{game_time % 60:02d}"
-        local_min = (game_time + tz_offset) % 1440
-        local_str = f"{local_min // 60:02d}:{local_min % 60:02d}"
-        self._status_label.setText(
-            f"● Game connected   Game: {game_str}   Local: {local_str}"
-        )
+        self._status_label.setText(f"● Game connected   Game: {game_str}")
         self._values_label.setText(
             f"Brightness: {brightness}/255   Color temp: {kelvin} K"
         )
         if tz_name:
-            h, m = divmod(abs(tz_offset), 60)
-            sign = "+" if tz_offset >= 0 else "-"
-            tz_str = f"UTC{sign}{h}" if m == 0 else f"UTC{sign}{h}:{m:02d}"
-            self._tz_label.setText(f"Timezone: {tz_name}  ({tz_str})")
+            self._tz_label.setText(f"Timezone: {tz_name}")
         else:
             self._tz_label.setText("Timezone: unknown")
+        self._country_label.setText(f"Country: {country_name or '—'}")
+
+        # Forward to map panel
+        self._map_panel.on_light_updated(game_time, brightness, kelvin, tz_name, country_name)
 
     def _on_worker_finished(self) -> None:
         self._start_btn.setEnabled(True)
@@ -189,6 +203,7 @@ class MainWindow(QMainWindow):
         self._tray.set_running(False)
         self._values_label.setText("Brightness: --   Color temp: --")
         self._tz_label.setText("Timezone: --")
+        self._country_label.setText("Country: --")
 
     def _append_log(self, msg: str) -> None:
         self._log_view.appendPlainText(msg)

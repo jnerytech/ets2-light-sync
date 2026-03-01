@@ -1,16 +1,15 @@
 """
-main.py – ETS2 Light Sync orchestrator.
+main.py – ETS2 Light Sync orchestrator (headless mode).
 
-Reads ETS2 game time (FR01), calculates the matching light settings (FR02),
-and sends them to Home Assistant (FR03).  On exit it resets the bulb to its
-default state (FR04).  Poll rate is configurable via .env (FR05).
+Reads ETS2 telemetry, computes astronomical light settings from real
+sunrise/sunset times for the truck's location, and sends them to
+Home Assistant.  On exit it resets the bulb to its default state.
 
 Simulation mode
 ───────────────
 Set SIM_MODE=1 in .env (or environment) to run without ETS2.  The script
 will simulate a full in-game day at SIM_TIME_SPEED game-minutes per second,
-starting at SIM_TIME_START minutes since midnight.  Useful for tuning the
-light curve without launching the game.
+starting at SIM_TIME_START minutes since midnight.
 
 Usage
 ─────
@@ -28,17 +27,18 @@ from dotenv import load_dotenv
 
 from ha_client import HomeAssistantClient
 from light_curve import calculate_light
-from location import get_timezone_offset, reset_cache
+from location import get_location, reset_cache
+from sun_times import get_sun_curve, reset_cache as reset_sun_cache
 from telemetry import get_telemetry
 
 load_dotenv()
 
 # ── Configuration ────────────────────────────────────────────────────────────
-POLL_INTERVAL = float(os.getenv("POLL_INTERVAL", "15"))   # seconds (FR05)
-SIM_MODE = os.getenv("SIM_MODE", "0") == "1"
-SIM_TIME_START = int(os.getenv("SIM_TIME_START", "360"))   # 06:00
-SIM_TIME_SPEED = float(os.getenv("SIM_TIME_SPEED", "60"))  # game-min per real-sec
-TIMEZONE_AWARE = os.getenv("TIMEZONE_AWARE", "1") == "1"
+POLL_INTERVAL         = float(os.getenv("POLL_INTERVAL", "15"))    # seconds
+SIM_MODE              = os.getenv("SIM_MODE", "0") == "1"
+SIM_TIME_START        = int(os.getenv("SIM_TIME_START", "360"))    # 06:00
+SIM_TIME_SPEED        = float(os.getenv("SIM_TIME_SPEED", "60"))   # game-min/real-sec
+ASTRONOMICAL_LIGHTING = os.getenv("ASTRONOMICAL_LIGHTING", "1") == "1"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -83,7 +83,7 @@ def main() -> None:
         "ETS2 Light Sync starting  [poll=%.1fs%s%s]",
         POLL_INTERVAL,
         ", SIM MODE" if SIM_MODE else "",
-        ", TZ-aware" if TIMEZONE_AWARE else "",
+        ", astronomical lighting" if ASTRONOMICAL_LIGHTING else "",
     )
 
     client = HomeAssistantClient()
@@ -112,6 +112,7 @@ def main() -> None:
                 log.info("Game disconnected — resetting light")
                 client.reset_to_default()
                 reset_cache()
+                reset_sun_cache()
                 game_was_running = False
             time.sleep(POLL_INTERVAL)
             continue
@@ -120,29 +121,29 @@ def main() -> None:
             log.info("Game connected")
             game_was_running = True
 
-        # ── Timezone offset ────────────────────────────────────────────────
-        tz_offset = 0
-        if TIMEZONE_AWARE:
-            tz_offset, tz_name = get_timezone_offset(truck_x, truck_z)
-            if tz_name:
-                log.debug("TZ: %s  UTC%+.1f", tz_name, tz_offset / 60)
+        # ── Resolve location and astronomical curve ────────────────────────
+        loc = get_location(truck_x, truck_z) if ASTRONOMICAL_LIGHTING else None
 
-        # ── Calculate and apply light settings every poll ─────────────────
+        dynamic_curve = None
+        if loc and loc.tz_name:
+            dynamic_curve = get_sun_curve(loc.lat, loc.lon, loc.tz_name)
+            if loc.tz_name:
+                log.debug("TZ: %s  country: %s", loc.tz_name, loc.country_name or "unknown")
+
+        # ── Calculate and apply light settings ────────────────────────────
         assert isinstance(game_time, int)
-        brightness, color_temp = calculate_light(
-            game_time, timezone_offset_minutes=tz_offset
-        )
-        local_time = (game_time + tz_offset) % 1440
+        brightness, color_temp = calculate_light(game_time, dynamic_curve)
 
         log.info(
-            "Game %s  Local %s  →  brightness=%3d/255  color_temp=%dK",
-            _fmt(game_time), _fmt(local_time), brightness, color_temp,
+            "Game %s  →  brightness=%3d/255  color_temp=%dK  [%s]",
+            _fmt(game_time), brightness, color_temp,
+            loc.tz_name if loc and loc.tz_name else "UTC",
         )
         client.set_light(brightness, color_temp)
 
         time.sleep(POLL_INTERVAL)
 
-    # ── Cleanup on exit (FR04) ────────────────────────────────────────────
+    # ── Cleanup on exit ───────────────────────────────────────────────────
     log.info("Shutting down — resetting light to default")
     client.reset_to_default()
     log.info("Goodbye.")

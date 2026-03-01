@@ -15,13 +15,16 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from app.config import load as load_config
 from ha_client import HomeAssistantClient
 from light_curve import calculate_light
-from location import get_timezone_offset, reset_cache
+from location import get_location, reset_cache
+from sun_times import get_sun_curve, reset_cache as reset_sun_cache
 from telemetry import get_telemetry
+
 
 def _sim_time(start: int, speed: float, epoch: float) -> int:
     """Return simulated game time (0–1439 min) based on wall clock."""
     elapsed = time.monotonic() - epoch
     return int(start + elapsed * speed) % 1440
+
 
 log = logging.getLogger(__name__)
 
@@ -29,8 +32,9 @@ log = logging.getLogger(__name__)
 class SyncWorker(QThread):
     """Background thread that polls ETS2 telemetry and drives HA lights."""
 
-    status_changed = pyqtSignal(str)                    # "running" | "connected" | "waiting" | "stopped" | "error"
-    light_updated = pyqtSignal(int, int, int, int, str) # game_time_min, brightness, kelvin, tz_offset_min, tz_name
+    status_changed  = pyqtSignal(str)              # "running"|"connected"|"waiting"|"stopped"|"error"
+    light_updated   = pyqtSignal(int, int, int, str, str)  # game_time, brightness, kelvin, tz_name, country_name
+    position_updated = pyqtSignal(float, float)    # truck_x, truck_z (for map widget)
 
     def __init__(self) -> None:
         super().__init__()
@@ -69,15 +73,14 @@ class SyncWorker(QThread):
 
         # Load custom light curve (list-of-lists from JSON → list-of-tuples)
         raw_curve = cfg.get("light_curve")
-        curve = [tuple(wp) for wp in raw_curve] if raw_curve else None
+        base_curve = [tuple(wp) for wp in raw_curve] if raw_curve else None
 
         sim_mode = bool(cfg.get("sim_mode", False))
         sim_start = int(cfg.get("sim_time_start", 360))
         sim_speed = float(cfg.get("sim_time_speed", 60.0))
         sim_epoch = time.monotonic()
-        timezone_aware = bool(cfg.get("timezone_aware", True))
-        # In sim mode, always poll at 1 s so transitions look smooth regardless
-        # of the configured poll interval (which is tuned for real gameplay).
+        astronomical_lighting = bool(cfg.get("astronomical_lighting", True))
+        # In sim mode, always poll at 1 s so transitions look smooth.
         poll_interval = 1.0 if sim_mode else float(cfg.get("poll_interval", 5))
 
         self._running = True
@@ -109,6 +112,7 @@ class SyncWorker(QThread):
                     log.info("Game disconnected — resetting light")
                     client.reset_to_default()
                     reset_cache()
+                    reset_sun_cache()
                     game_was_running = False
                     self.status_changed.emit("waiting")
             else:
@@ -117,31 +121,39 @@ class SyncWorker(QThread):
                     game_was_running = True
                     self.status_changed.emit("connected")
 
-                tz_offset = 0
-                tz_name   = ""
-                if timezone_aware:
-                    tz_offset, tz_name_or_none = get_timezone_offset(truck_x, truck_z)
-                    tz_name = tz_name_or_none or ""
+                # Resolve location and astronomical curve
+                loc = get_location(truck_x, truck_z) if astronomical_lighting else None
 
-                brightness, color_temp = calculate_light(
-                    game_time, curve, timezone_offset_minutes=tz_offset
-                )
-                local_min = (game_time + tz_offset) % 1440
+                if loc and loc.tz_name:
+                    dynamic_curve = get_sun_curve(loc.lat, loc.lon, loc.tz_name)
+                else:
+                    dynamic_curve = None
+
+                active_curve = dynamic_curve or base_curve
+                brightness, color_temp = calculate_light(game_time, active_curve)
+
+                tz_name      = loc.tz_name      if loc else ""
+                country_name = loc.country_name  if loc else ""
+
                 if brightness == 0:
                     log.info(
-                        "Game %02d:%02d  Local %02d:%02d  →  off",
+                        "Game %02d:%02d  →  off  [%s]",
                         game_time // 60, game_time % 60,
-                        local_min // 60, local_min % 60,
+                        tz_name or "UTC",
                     )
                 else:
                     log.info(
-                        "Game %02d:%02d  Local %02d:%02d  →  brightness=%3d/255  color_temp=%dK",
+                        "Game %02d:%02d  →  brightness=%3d/255  color_temp=%dK  [%s]",
                         game_time // 60, game_time % 60,
-                        local_min // 60, local_min % 60,
                         brightness, color_temp,
+                        tz_name or "UTC",
                     )
                 client.set_light(brightness, color_temp)
-                self.light_updated.emit(game_time, brightness, color_temp, tz_offset, tz_name)
+                self.light_updated.emit(
+                    game_time, brightness, color_temp,
+                    tz_name or "", country_name or "",
+                )
+                self.position_updated.emit(truck_x, truck_z)
 
             # Sleep in 0.5 s increments so stop() is responsive.
             elapsed = 0.0
@@ -149,7 +161,7 @@ class SyncWorker(QThread):
                 time.sleep(0.5)
                 elapsed += 0.5
 
-        # ── Cleanup (FR04) ────────────────────────────────────────────────────
+        # ── Cleanup ───────────────────────────────────────────────────────────
         log.info("Shutting down — resetting light to default")
         client.reset_to_default()
         log.info("Goodbye.")

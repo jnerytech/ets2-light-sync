@@ -101,11 +101,11 @@ class SettingsDialog(QDialog):
         sim_layout.addWidget(self._sim_mode)
         sim_layout.addWidget(self._sim_group)
 
-        # ── Timezone settings ─────────────────────────────────────────────────
-        self._timezone_aware = QCheckBox(
-            "Timezone-aware brightness (adjust for local time based on truck position)"
+        # ── Astronomical lighting ─────────────────────────────────────────────
+        self._astronomical_lighting = QCheckBox(
+            "Astronomical lighting (dynamic curve from real sunrise/sunset at truck position)"
         )
-        self._timezone_aware.setChecked(bool(self._cfg.get("timezone_aware", True)))
+        self._astronomical_lighting.setChecked(bool(self._cfg.get("astronomical_lighting", True)))
 
         # ── Light curve ───────────────────────────────────────────────────────
         self._curve_status = QLabel()
@@ -135,7 +135,7 @@ class SettingsDialog(QDialog):
         layout.addSpacing(8)
         layout.addLayout(sim_layout)
         layout.addSpacing(8)
-        layout.addWidget(self._timezone_aware)
+        layout.addWidget(self._astronomical_lighting)
         layout.addSpacing(8)
         layout.addWidget(curve_group)
         layout.addWidget(buttons)
@@ -169,7 +169,7 @@ class SettingsDialog(QDialog):
         self._sim_mode.setChecked(bool(d["sim_mode"]))
         self._sim_time_start.setValue(int(d["sim_time_start"]))
         self._sim_time_speed.setValue(float(d["sim_time_speed"]))
-        self._timezone_aware.setChecked(bool(d["timezone_aware"]))
+        self._astronomical_lighting.setChecked(bool(d["astronomical_lighting"]))
         self._light_curve = None
         self._refresh_curve_label()
 
@@ -185,7 +185,7 @@ class SettingsDialog(QDialog):
             "sim_mode": self._sim_mode.isChecked(),
             "sim_time_start": self._sim_time_start.value(),
             "sim_time_speed": self._sim_time_speed.value(),
-            "timezone_aware": self._timezone_aware.isChecked(),
+            "astronomical_lighting": self._astronomical_lighting.isChecked(),
             "light_curve": self._light_curve,
         }
         config.save(data)
