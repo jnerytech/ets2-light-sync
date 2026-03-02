@@ -11,9 +11,6 @@ import os
 from typing import Any
 
 import requests
-from dotenv import load_dotenv
-
-load_dotenv()
 
 log = logging.getLogger(__name__)
 
@@ -21,21 +18,43 @@ log = logging.getLogger(__name__)
 class HomeAssistantClient:
     """Thin wrapper around the HA light services REST API."""
 
-    def __init__(self) -> None:
-        self.url = os.getenv("HA_URL", "http://192.168.3.155:8123").rstrip("/")
-        self.token = os.getenv("HA_TOKEN")
-        self.entity_id = os.getenv("ENTITY_ID", "light.luz")
-        self.transition = float(os.getenv("TRANSITION_TIME", "1"))
-        self.default_brightness = int(os.getenv("DEFAULT_BRIGHTNESS", "255"))
-        self.default_color_temp_k = int(os.getenv("DEFAULT_COLOR_TEMP_K", "6500"))
-
-        if not self.token:
-            raise ValueError("HA_TOKEN is not set. Add it to your .env file.")
-
+    def __init__(
+        self,
+        url: str,
+        token: str,
+        entity_id: str,
+        transition: float = 1.0,
+        default_brightness: int = 255,
+        default_color_temp_k: int = 6500,
+    ) -> None:
+        if not token:
+            raise ValueError("HA token must not be empty.")
+        self.url = url.rstrip("/")
+        self.entity_id = entity_id
+        self.transition = transition
+        self.default_brightness = default_brightness
+        self.default_color_temp_k = default_color_temp_k
         self._headers = {
-            "Authorization": f"Bearer {self.token}",
+            "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+
+    @classmethod
+    def from_env(cls) -> "HomeAssistantClient":
+        """Construct from environment / .env file (headless mode)."""
+        from dotenv import load_dotenv
+        load_dotenv()
+        token = os.getenv("HA_TOKEN", "")
+        if not token:
+            raise ValueError("HA_TOKEN is not set. Add it to your .env file.")
+        return cls(
+            url=os.getenv("HA_URL", "http://192.168.3.155:8123"),
+            token=token,
+            entity_id=os.getenv("ENTITY_ID", "light.luz"),
+            transition=float(os.getenv("TRANSITION_TIME", "1")),
+            default_brightness=int(os.getenv("DEFAULT_BRIGHTNESS", "255")),
+            default_color_temp_k=int(os.getenv("DEFAULT_COLOR_TEMP_K", "6500")),
+        )
 
     # ── Public API ───────────────────────────────────────────────────────────
 

@@ -126,7 +126,7 @@ class SettingsDialog(QDialog):
             self._refresh_curve_label()
 
     def _reset_to_defaults(self) -> None:
-        d = config._DEFAULTS
+        d = config.defaults()
         self._ha_url.setText(str(d["ha_url"]))
         # token intentionally not reset
         self._entity_id.setText(str(d["entity_id"]))

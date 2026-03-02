@@ -6,7 +6,6 @@ responsive.  Configuration is read from config/settings.json instead of .env.
 """
 
 import logging
-import os
 import time
 from typing import Optional
 
@@ -50,16 +49,15 @@ class SyncWorker(QThread):
             self.status_changed.emit("error")
             return
 
-        # Populate env vars so HomeAssistantClient.__init__ can read them.
-        os.environ["HA_URL"] = str(cfg["ha_url"])
-        os.environ["HA_TOKEN"] = str(cfg["ha_token"])
-        os.environ["ENTITY_ID"] = str(cfg["entity_id"])
-        os.environ["TRANSITION_TIME"] = str(cfg["transition_time"])
-        os.environ["DEFAULT_BRIGHTNESS"] = str(cfg["default_brightness"])
-        os.environ["DEFAULT_COLOR_TEMP_K"] = str(cfg["default_color_temp_k"])
-
         try:
-            client = HomeAssistantClient()
+            client = HomeAssistantClient(
+                url=str(cfg["ha_url"]),
+                token=str(cfg["ha_token"]),
+                entity_id=str(cfg["entity_id"]),
+                transition=float(cfg["transition_time"]),
+                default_brightness=int(cfg["default_brightness"]),
+                default_color_temp_k=int(cfg["default_color_temp_k"]),
+            )
         except ValueError as exc:
             log.error("Configuration error: %s", exc)
             self.status_changed.emit("error")

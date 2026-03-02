@@ -23,10 +23,10 @@ from location import get_location, reset_cache
 from sun_times import get_sun_curve, reset_cache as reset_sun_cache
 from telemetry import get_telemetry
 
-load_dotenv()
+load_dotenv()  # populate os.environ from .env before reading values below
 
 # ── Configuration ────────────────────────────────────────────────────────────
-POLL_INTERVAL         = float(os.getenv("POLL_INTERVAL", "15"))    # seconds
+POLL_INTERVAL         = float(os.getenv("POLL_INTERVAL", "15"))
 ASTRONOMICAL_LIGHTING = os.getenv("ASTRONOMICAL_LIGHTING", "1") == "1"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ def main() -> None:
         ", astronomical lighting" if ASTRONOMICAL_LIGHTING else "",
     )
 
-    client = HomeAssistantClient()
+    client = HomeAssistantClient.from_env()
     game_was_running = False
 
     while _running:

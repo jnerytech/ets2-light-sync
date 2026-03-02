@@ -64,20 +64,6 @@ def get_telemetry() -> Optional[Telemetry]:
     return _read_shared_memory()
 
 
-def get_game_time() -> Optional[int]:
-    """Return current in-game time-of-day in minutes (0–1439), or None.
-
-    Returns None when:
-    - Not running on Windows (development / CI environment), or
-    - ETS2 is not running / telemetry plugin not active.
-    """
-    if sys.platform != "win32":
-        log.debug("Non-Windows platform – telemetry unavailable")
-        return None
-    result = _read_shared_memory()
-    return result.game_time if result is not None else None
-
-
 def _read_shared_memory() -> Optional[Telemetry]:
     try:
         import ctypes

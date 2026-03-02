@@ -25,6 +25,11 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 
+def defaults() -> dict[str, Any]:
+    """Return a copy of the default configuration."""
+    return dict(_DEFAULTS)
+
+
 def _config_path() -> Path:
     if getattr(sys, "frozen", False):
         base = Path(sys.executable).parent
