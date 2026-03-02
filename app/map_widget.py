@@ -338,6 +338,8 @@ class _SunInfoPanel(QWidget):
 class MapPanel(QWidget):
     """Full map tab: canvas + mode toggle + time slider + sun info."""
 
+    sim_light_update = pyqtSignal(int, int)  # brightness, kelvin — emitted in simulation mode
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
 
@@ -518,7 +520,7 @@ class MapPanel(QWidget):
             self._current_sun_curve = get_sun_curve(loc.lat, loc.lon, loc.tz_name)
 
         curve = self._current_sun_curve or list(_BUILTIN_CURVE)
-        brightness, _ = calculate_light(game_time, curve)
+        brightness, color_temp = calculate_light(game_time, curve)
 
         # Extract sunrise/sunset from curve
         sunrise_min, sunset_min = _extract_sunrise_sunset(curve)
@@ -531,6 +533,8 @@ class MapPanel(QWidget):
             sunset_min,
             brightness,
         )
+
+        self.sim_light_update.emit(brightness, color_temp)
 
     def _refresh_info_live(self, game_time: int, brightness: int) -> None:
         """Update sun info panel in live mode (data from SyncWorker)."""

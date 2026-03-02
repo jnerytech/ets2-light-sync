@@ -31,7 +31,7 @@ class SyncWorker(QThread):
 
     def __init__(self) -> None:
         super().__init__()
-        self._running = False
+        self._running = True  # Set False by stop(); True by default so stop() before run() works
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -70,7 +70,10 @@ class SyncWorker(QThread):
         astronomical_lighting = bool(cfg.get("astronomical_lighting", True))
         poll_interval = float(cfg.get("poll_interval", 5))
 
-        self._running = True
+        if not self._running:  # stop() was called before run() had a chance to start
+            self.status_changed.emit("stopped")
+            return
+
         game_was_running = False
 
         log.info("ETS2 Light Sync starting  [poll=%.1fs]", poll_interval)

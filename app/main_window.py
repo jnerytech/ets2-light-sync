@@ -7,6 +7,7 @@ Minimises to the system tray on close.
 
 import io
 import logging
+import threading
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QFont, QPixmap
@@ -28,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from app import config, theme
 from app.icon import make_icon
+from ha_client import HomeAssistantClient
 from app.log_handler import QtLogHandler
 from app.map_widget import MapPanel
 from app.settings_dialog import SettingsDialog
@@ -54,7 +56,11 @@ class MainWindow(QMainWindow):
         self._web = WebServer(self._state)
         self._web.start()
 
+        self._sim_timer: QTimer | None = None
+        self._sim_pending: tuple[int, int] | None = None
+
         self._build_ui()
+        self._map_panel.sim_light_update.connect(self._on_sim_light_update)
         self._setup_logging()
         self._tray = TrayIcon(self, self)
         self._tray.show()
@@ -178,7 +184,47 @@ class MainWindow(QMainWindow):
     def stop_sync(self) -> None:
         if self._worker:
             self._worker.stop()
-            # UI re-enable happens in _on_worker_finished
+            self._stop_btn.setEnabled(False)  # Immediate visual feedback
+            # Start re-enable happens in _on_worker_finished once cleanup finishes
+
+    # ── Simulation light control ──────────────────────────────────────────────
+
+    def _on_sim_light_update(self, brightness: int, kelvin: int) -> None:
+        """Called when Map simulation slider/position changes. Debounces HA calls."""
+        if self._worker and self._worker.isRunning():
+            return  # Sync is active; simulation tab is preview-only
+        self._sim_pending = (brightness, kelvin)
+        if self._sim_timer is None:
+            self._sim_timer = QTimer(self)
+            self._sim_timer.setSingleShot(True)
+            self._sim_timer.timeout.connect(self._send_sim_light)
+        self._sim_timer.start(300)  # 300 ms debounce
+
+    def _send_sim_light(self) -> None:
+        """Send the debounced simulation light command to Home Assistant."""
+        if not self._sim_pending:
+            return
+        brightness, kelvin = self._sim_pending
+        self._sim_pending = None
+        cfg = config.load()
+        if not cfg.get("ha_token"):
+            return
+        try:
+            client = HomeAssistantClient(
+                url=str(cfg["ha_url"]),
+                token=str(cfg["ha_token"]),
+                entity_id=str(cfg["entity_id"]),
+                transition=float(cfg.get("transition_time", 1)),
+                default_brightness=int(cfg.get("default_brightness", 255)),
+                default_color_temp_k=int(cfg.get("default_color_temp_k", 4000)),
+            )
+            threading.Thread(
+                target=client.set_light,
+                args=(brightness, kelvin),
+                daemon=True,
+            ).start()
+        except Exception as exc:
+            log.debug("Simulation light update failed: %s", exc)
 
     # ── Signal handlers ───────────────────────────────────────────────────────
 
