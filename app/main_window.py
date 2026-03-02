@@ -181,10 +181,11 @@ class MainWindow(QMainWindow):
             self._on_worker_finished()
 
     def _on_light_updated(
-        self, game_time: int, brightness: int, kelvin: int, tz_name: str, country_name: str
+        self, game_day: int, game_time: int, brightness: int, kelvin: int,
+        tz_name: str, country_name: str,
     ) -> None:
         game_str = f"{game_time // 60:02d}:{game_time % 60:02d}"
-        self._status_label.setText(f"● Game connected   Game: {game_str}")
+        self._status_label.setText(f"● Game connected   Day: {game_day}  Game: {game_str}")
         self._values_label.setText(
             f"Brightness: {brightness}/255   Color temp: {kelvin} K"
         )
@@ -195,7 +196,7 @@ class MainWindow(QMainWindow):
         self._country_label.setText(f"Country: {country_name or '—'}")
 
         # Forward to map panel
-        self._map_panel.on_light_updated(game_time, brightness, kelvin, tz_name, country_name)
+        self._map_panel.on_light_updated(game_day, game_time, brightness, kelvin, tz_name, country_name)
 
     def _on_worker_finished(self) -> None:
         self._start_btn.setEnabled(True)

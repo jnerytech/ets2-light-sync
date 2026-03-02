@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 
 from app import config
 from app.curve_editor import CurveEditorDialog
-from light_curve import _CURVE as _DEFAULT_CURVE
+from light_curve import DEFAULT_WAYPOINTS
 
 
 class SettingsDialog(QDialog):
@@ -71,36 +71,6 @@ class SettingsDialog(QDialog):
         ha_form.addRow("Default Brightness:", self._default_brightness)
         ha_form.addRow("Default Color Temp:", self._default_color_temp_k)
 
-        # ── Simulation mode fields ────────────────────────────────────────────
-        self._sim_mode = QCheckBox("Enable simulation mode (no ETS2 required)")
-        self._sim_mode.setChecked(bool(self._cfg.get("sim_mode", False)))
-
-        self._sim_time_start = QSpinBox()
-        self._sim_time_start.setRange(0, 1439)
-        self._sim_time_start.setSuffix(" min")
-        self._sim_time_start.setToolTip("Start time in minutes since midnight (360 = 06:00)")
-        self._sim_time_start.setValue(int(self._cfg.get("sim_time_start", 360)))
-
-        self._sim_time_speed = QDoubleSpinBox()
-        self._sim_time_speed.setRange(1.0, 3600.0)
-        self._sim_time_speed.setSingleStep(10.0)
-        self._sim_time_speed.setSuffix("× ")
-        self._sim_time_speed.setToolTip("Game-minutes elapsed per real-second")
-        self._sim_time_speed.setValue(float(self._cfg.get("sim_time_speed", 60.0)))
-
-        sim_form = QFormLayout()
-        sim_form.addRow("Start Time:", self._sim_time_start)
-        sim_form.addRow("Speed:", self._sim_time_speed)
-
-        self._sim_group = QGroupBox()
-        self._sim_group.setLayout(sim_form)
-        self._sim_group.setEnabled(self._sim_mode.isChecked())
-        self._sim_mode.toggled.connect(self._sim_group.setEnabled)  # type: ignore[misc]
-
-        sim_layout = QVBoxLayout()
-        sim_layout.addWidget(self._sim_mode)
-        sim_layout.addWidget(self._sim_group)
-
         # ── Astronomical lighting ─────────────────────────────────────────────
         self._astronomical_lighting = QCheckBox(
             "Astronomical lighting (dynamic curve from real sunrise/sunset at truck position)"
@@ -133,8 +103,6 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addLayout(ha_form)
         layout.addSpacing(8)
-        layout.addLayout(sim_layout)
-        layout.addSpacing(8)
         layout.addWidget(self._astronomical_lighting)
         layout.addSpacing(8)
         layout.addWidget(curve_group)
@@ -144,14 +112,14 @@ class SettingsDialog(QDialog):
 
     def _refresh_curve_label(self) -> None:
         if self._light_curve is None:
-            self._curve_status.setText(f"Using built-in default  ({len(_DEFAULT_CURVE)} waypoints)")
+            self._curve_status.setText("Using astronomical lighting  (no override)")
             self._curve_status.setStyleSheet("color: #778899;")
         else:
             self._curve_status.setText(f"Custom curve  ({len(self._light_curve)} waypoints)")
             self._curve_status.setStyleSheet("")
 
     def _open_curve_editor(self) -> None:
-        wps = self._light_curve if self._light_curve is not None else list(_DEFAULT_CURVE)
+        wps = self._light_curve if self._light_curve is not None else list(DEFAULT_WAYPOINTS)
         dlg = CurveEditorDialog(wps, self)
         if dlg.exec():
             self._light_curve = dlg.get_waypoints()
@@ -166,9 +134,6 @@ class SettingsDialog(QDialog):
         self._transition_time.setValue(float(d["transition_time"]))
         self._default_brightness.setValue(int(d["default_brightness"]))
         self._default_color_temp_k.setValue(int(d["default_color_temp_k"]))
-        self._sim_mode.setChecked(bool(d["sim_mode"]))
-        self._sim_time_start.setValue(int(d["sim_time_start"]))
-        self._sim_time_speed.setValue(float(d["sim_time_speed"]))
         self._astronomical_lighting.setChecked(bool(d["astronomical_lighting"]))
         self._light_curve = None
         self._refresh_curve_label()
@@ -182,9 +147,6 @@ class SettingsDialog(QDialog):
             "transition_time": self._transition_time.value(),
             "default_brightness": self._default_brightness.value(),
             "default_color_temp_k": self._default_color_temp_k.value(),
-            "sim_mode": self._sim_mode.isChecked(),
-            "sim_time_start": self._sim_time_start.value(),
-            "sim_time_speed": self._sim_time_speed.value(),
             "astronomical_lighting": self._astronomical_lighting.isChecked(),
             "light_curve": self._light_curve,
         }

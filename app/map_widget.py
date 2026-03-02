@@ -53,7 +53,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from light_curve import _CURVE as _BUILTIN_CURVE, calculate_light
+from light_curve import DEFAULT_WAYPOINTS as _BUILTIN_CURVE, calculate_light
 from location import ets2_to_latlon, get_country_name
 from sun_times import get_sun_curve
 
@@ -260,7 +260,7 @@ class MapCanvas(QWidget):
 # ── Sun info panel ─────────────────────────────────────────────────────────────
 
 class _SunInfoPanel(QWidget):
-    """Shows country, timezone, sunrise/sunset, and a brightness preview."""
+    """Shows country, timezone, sunrise/sunset, game day, and a brightness preview."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -268,6 +268,7 @@ class _SunInfoPanel(QWidget):
         self._lbl_tz       = QLabel("Timezone: —")
         self._lbl_sunrise  = QLabel("Sunrise: —")
         self._lbl_sunset   = QLabel("Sunset: —")
+        self._lbl_game_day = QLabel("Game day: —")
         self._lbl_bright   = QLabel("Brightness: —")
         self._bar          = QProgressBar()
         self._bar.setRange(0, 255)
@@ -283,10 +284,15 @@ class _SunInfoPanel(QWidget):
         col2.addWidget(self._lbl_sunrise)
         col2.addWidget(self._lbl_sunset)
 
+        col3 = QVBoxLayout()
+        col3.addWidget(self._lbl_game_day)
+
         cols = QHBoxLayout()
         cols.addLayout(col1)
         cols.addSpacing(16)
         cols.addLayout(col2)
+        cols.addSpacing(16)
+        cols.addLayout(col3)
         cols.addStretch()
 
         bright_row = QHBoxLayout()
@@ -306,6 +312,7 @@ class _SunInfoPanel(QWidget):
         sunrise_min: Optional[int],
         sunset_min: Optional[int],
         brightness: int,
+        game_day: Optional[int] = None,
     ) -> None:
         self._lbl_country.setText(f"Country: {country or '—'}")
         if tz_name:
@@ -321,6 +328,7 @@ class _SunInfoPanel(QWidget):
 
         self._lbl_sunrise.setText(f"Sunrise: {fmt(sunrise_min)}")
         self._lbl_sunset.setText(f"Sunset: {fmt(sunset_min)}")
+        self._lbl_game_day.setText(f"Game day: {game_day}" if game_day is not None else "Game day: —")
         self._lbl_bright.setText(f"Brightness: {brightness}/255")
         self._bar.setValue(brightness)
 
@@ -342,6 +350,7 @@ class MapPanel(QWidget):
         self._current_country: Optional[str] = None
         self._current_utc_offset: int = 0
         self._current_sun_curve: Optional[list] = None
+        self._live_game_day: Optional[int] = None
         self._anim_timer = QTimer(self)
         self._anim_timer.setInterval(50)  # 20 fps
         self._anim_timer.timeout.connect(self._anim_tick)
@@ -428,6 +437,7 @@ class MapPanel(QWidget):
 
     def on_light_updated(
         self,
+        game_day: int,
         game_time: int,
         brightness: int,
         kelvin: int,
@@ -439,6 +449,7 @@ class MapPanel(QWidget):
             self._current_tz_name    = tz_name or None
             self._current_country    = country_name or None
             self._current_utc_offset = 0  # offset is baked into curve
+            self._live_game_day      = game_day
             # Refresh sun info with live data
             self._refresh_info_live(game_time, brightness)
 
@@ -539,6 +550,7 @@ class MapPanel(QWidget):
             sunrise_min,
             sunset_min,
             brightness,
+            game_day=self._live_game_day,
         )
 
     def _start_download(self) -> None:

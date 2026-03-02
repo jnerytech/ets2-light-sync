@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from light_curve import _CURVE as _DEFAULT_CURVE
+from light_curve import DEFAULT_WAYPOINTS as _DEFAULT_CURVE
 
 # ── Kelvin → approximate RGB (Tanner Helland algorithm) ──────────────────────
 

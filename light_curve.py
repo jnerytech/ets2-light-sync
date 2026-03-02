@@ -21,7 +21,7 @@ import math
 
 # ── Waypoints ─────────────────────────────────────────────────────────────────
 # Each entry: (minutes_since_midnight, brightness 0–255, colour_temp_kelvin)
-_CURVE: list[tuple[int, int, int]] = [
+DEFAULT_WAYPOINTS: list[tuple[int, int, int]] = [
     (    0,   0,  2700),  # 00:00  midnight       — off
     (  270,   0,  2700),  # 04:30  night end      — off, start rising
     (  330,  25,  2200),  # 05:30  dawn — warm amber, slowly brightening
@@ -52,7 +52,7 @@ def calculate_light(
         Minutes since midnight, range 0–1439 (normalised via modulo).
     curve:
         Optional list of ``(minutes, brightness, kelvin)`` waypoints.
-        Defaults to the built-in ``_CURVE`` when ``None``.
+        Defaults to ``DEFAULT_WAYPOINTS`` when ``None``.
     timezone_offset_minutes:
         UTC offset in minutes to add before applying the curve.
         Positive values shift the clock forward (east of UTC), so sunrise
@@ -64,7 +64,7 @@ def calculate_light(
     tuple[int, int]
         ``brightness`` in 0–255 and ``colour_temp_kelvin`` in Kelvin.
     """
-    c = _CURVE if curve is None else curve
+    c = DEFAULT_WAYPOINTS if curve is None else curve
     t = (game_time_minutes + timezone_offset_minutes) % 1440
 
     for i in range(len(c) - 1):

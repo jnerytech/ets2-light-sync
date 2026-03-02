@@ -20,21 +20,15 @@ from sun_times import get_sun_curve, reset_cache as reset_sun_cache
 from telemetry import get_telemetry
 
 
-def _sim_time(start: int, speed: float, epoch: float) -> int:
-    """Return simulated game time (0–1439 min) based on wall clock."""
-    elapsed = time.monotonic() - epoch
-    return int(start + elapsed * speed) % 1440
-
-
 log = logging.getLogger(__name__)
 
 
 class SyncWorker(QThread):
     """Background thread that polls ETS2 telemetry and drives HA lights."""
 
-    status_changed  = pyqtSignal(str)              # "running"|"connected"|"waiting"|"stopped"|"error"
-    light_updated   = pyqtSignal(int, int, int, str, str)  # game_time, brightness, kelvin, tz_name, country_name
-    position_updated = pyqtSignal(float, float)    # truck_x, truck_z (for map widget)
+    status_changed  = pyqtSignal(str)                       # "running"|"connected"|"waiting"|"stopped"|"error"
+    light_updated   = pyqtSignal(int, int, int, int, str, str)  # game_day, game_time, brightness, kelvin, tz_name, country_name
+    position_updated = pyqtSignal(float, float)             # truck_x, truck_z (for map widget)
 
     def __init__(self) -> None:
         super().__init__()
@@ -75,37 +69,26 @@ class SyncWorker(QThread):
         raw_curve = cfg.get("light_curve")
         base_curve = [tuple(wp) for wp in raw_curve] if raw_curve else None
 
-        sim_mode = bool(cfg.get("sim_mode", False))
-        sim_start = int(cfg.get("sim_time_start", 360))
-        sim_speed = float(cfg.get("sim_time_speed", 60.0))
-        sim_epoch = time.monotonic()
         astronomical_lighting = bool(cfg.get("astronomical_lighting", True))
-        # In sim mode, always poll at 1 s so transitions look smooth.
-        poll_interval = 1.0 if sim_mode else float(cfg.get("poll_interval", 5))
+        poll_interval = float(cfg.get("poll_interval", 5))
 
         self._running = True
         game_was_running = False
 
-        log.info(
-            "ETS2 Light Sync starting  [poll=%.1fs%s]",
-            poll_interval,
-            f", SIM start={sim_start // 60:02d}:{sim_start % 60:02d} speed={sim_speed}×" if sim_mode else "",
-        )
+        log.info("ETS2 Light Sync starting  [poll=%.1fs]", poll_interval)
         self.status_changed.emit("running")
 
         while self._running:
-            if sim_mode:
-                game_time: Optional[int] = _sim_time(sim_start, sim_speed, sim_epoch)
+            telemetry = get_telemetry()
+            if telemetry is None:
+                game_time: Optional[int] = None
+                game_day = 0
                 truck_x = truck_z = float("nan")
             else:
-                telemetry = get_telemetry()
-                if telemetry is None:
-                    game_time = None
-                    truck_x = truck_z = float("nan")
-                else:
-                    game_time = telemetry.game_time
-                    truck_x   = telemetry.truck_x
-                    truck_z   = telemetry.truck_z
+                game_time = telemetry.game_time
+                game_day  = telemetry.game_day
+                truck_x   = telemetry.truck_x
+                truck_z   = telemetry.truck_z
 
             if game_time is None:
                 if game_was_running:
@@ -137,20 +120,20 @@ class SyncWorker(QThread):
 
                 if brightness == 0:
                     log.info(
-                        "Game %02d:%02d  →  off  [%s]",
-                        game_time // 60, game_time % 60,
+                        "Game day %d  %02d:%02d  →  off  [%s]",
+                        game_day, game_time // 60, game_time % 60,
                         tz_name or "UTC",
                     )
                 else:
                     log.info(
-                        "Game %02d:%02d  →  brightness=%3d/255  color_temp=%dK  [%s]",
-                        game_time // 60, game_time % 60,
+                        "Game day %d  %02d:%02d  →  brightness=%3d/255  color_temp=%dK  [%s]",
+                        game_day, game_time // 60, game_time % 60,
                         brightness, color_temp,
                         tz_name or "UTC",
                     )
                 client.set_light(brightness, color_temp)
                 self.light_updated.emit(
-                    game_time, brightness, color_temp,
+                    game_day, game_time, brightness, color_temp,
                     tz_name or "", country_name or "",
                 )
                 self.position_updated.emit(truck_x, truck_z)

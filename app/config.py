@@ -20,10 +20,6 @@ _DEFAULTS: dict[str, Any] = {
     "default_color_temp_k": 6500,
     "light_curve": None,   # None = use built-in default from light_curve.py
     "theme": "System",
-    # Simulation mode
-    "sim_mode": False,
-    "sim_time_start": 360,   # minutes since midnight (06:00)
-    "sim_time_speed": 60.0,  # game-minutes per real-second
     # Astronomical lighting: generate dynamic curve from real sunrise/sunset
     "astronomical_lighting": True,
 }
