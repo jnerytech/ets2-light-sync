@@ -5,23 +5,15 @@ Reads ETS2 telemetry, computes astronomical light settings from real
 sunrise/sunset times for the truck's location, and sends them to
 Home Assistant.  On exit it resets the bulb to its default state.
 
-Simulation mode
-───────────────
-Set SIM_MODE=1 in .env (or environment) to run without ETS2.  The script
-will simulate a full in-game day at SIM_TIME_SPEED game-minutes per second,
-starting at SIM_TIME_START minutes since midnight.
-
 Usage
 ─────
-  python main.py              # normal mode
-  SIM_MODE=1 python main.py   # simulation mode (Linux / PowerShell)
+  python main.py
 """
 
 import logging
 import os
 import signal
 import time
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -31,13 +23,10 @@ from location import get_location, reset_cache
 from sun_times import get_sun_curve, reset_cache as reset_sun_cache
 from telemetry import get_telemetry
 
-load_dotenv()
+load_dotenv()  # populate os.environ from .env before reading values below
 
 # ── Configuration ────────────────────────────────────────────────────────────
-POLL_INTERVAL         = float(os.getenv("POLL_INTERVAL", "15"))    # seconds
-SIM_MODE              = os.getenv("SIM_MODE", "0") == "1"
-SIM_TIME_START        = int(os.getenv("SIM_TIME_START", "360"))    # 06:00
-SIM_TIME_SPEED        = float(os.getenv("SIM_TIME_SPEED", "60"))   # game-min/real-sec
+POLL_INTERVAL         = float(os.getenv("POLL_INTERVAL", "15"))
 ASTRONOMICAL_LIGHTING = os.getenv("ASTRONOMICAL_LIGHTING", "1") == "1"
 
 # ── Logging ──────────────────────────────────────────────────────────────────
@@ -50,7 +39,6 @@ log = logging.getLogger(__name__)
 
 # ── State ────────────────────────────────────────────────────────────────────
 _running = True
-_sim_epoch: float = 0.0
 
 
 def _shutdown(signum: int | None = None, frame: object | None = None) -> None:
@@ -64,12 +52,6 @@ signal.signal(signal.SIGTERM, _shutdown)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _sim_time() -> int:
-    """Return simulated game time (0–1439 minutes) based on wall clock."""
-    elapsed = time.monotonic() - _sim_epoch
-    return int(SIM_TIME_START + elapsed * SIM_TIME_SPEED) % 1440
-
-
 def _fmt(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
@@ -77,34 +59,25 @@ def _fmt(minutes: int) -> str:
 # ── Main loop ────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    global _sim_epoch
-
     log.info(
-        "ETS2 Light Sync starting  [poll=%.1fs%s%s]",
+        "ETS2 Light Sync starting  [poll=%.1fs%s]",
         POLL_INTERVAL,
-        ", SIM MODE" if SIM_MODE else "",
         ", astronomical lighting" if ASTRONOMICAL_LIGHTING else "",
     )
 
-    client = HomeAssistantClient()
-    _sim_epoch = time.monotonic()
-
+    client = HomeAssistantClient.from_env()
     game_was_running = False
 
     while _running:
         # ── Get current game time and truck position ───────────────────────
-        if SIM_MODE:
-            game_time: Optional[int] = _sim_time()
+        telemetry = get_telemetry()
+        if telemetry is None:
+            game_time = None
             truck_x = truck_z = float("nan")
         else:
-            telemetry = get_telemetry()
-            if telemetry is None:
-                game_time = None
-                truck_x = truck_z = float("nan")
-            else:
-                game_time = telemetry.game_time
-                truck_x   = telemetry.truck_x
-                truck_z   = telemetry.truck_z
+            game_time = telemetry.game_time
+            truck_x   = telemetry.truck_x
+            truck_z   = telemetry.truck_z
 
         # ── Handle game connect / disconnect ──────────────────────────────
         if game_time is None:
@@ -131,7 +104,6 @@ def main() -> None:
                 log.debug("TZ: %s  country: %s", loc.tz_name, loc.country_name or "unknown")
 
         # ── Calculate and apply light settings ────────────────────────────
-        assert isinstance(game_time, int)
         brightness, color_temp = calculate_light(game_time, dynamic_curve)
 
         log.info(

@@ -51,6 +51,7 @@ _SHARED_MEM_READ_SIZE = 2224  # 2216 + 8 bytes for the Z double
 
 class Telemetry(NamedTuple):
     game_time: int   # minutes since midnight, 0–1439
+    game_day: int    # absolute game day since epoch (time_abs // 1440)
     paused: bool     # True when game simulation is paused
     truck_x: float   # World East coordinate (game units); float('nan') when unavailable
     truck_z: float   # World South coordinate (game units); float('nan') when unavailable
@@ -61,20 +62,6 @@ def get_telemetry() -> Optional[Telemetry]:
     if sys.platform != "win32":
         return None
     return _read_shared_memory()
-
-
-def get_game_time() -> Optional[int]:
-    """Return current in-game time-of-day in minutes (0–1439), or None.
-
-    Returns None when:
-    - Not running on Windows (development / CI environment), or
-    - ETS2 is not running / telemetry plugin not active.
-    """
-    if sys.platform != "win32":
-        log.debug("Non-Windows platform – telemetry unavailable")
-        return None
-    result = _read_shared_memory()
-    return result.game_time if result is not None else None
 
 
 def _read_shared_memory() -> Optional[Telemetry]:
@@ -121,6 +108,7 @@ def _read_shared_memory() -> Optional[Telemetry]:
                 truck_z = struct.unpack_from("<d", data, _TRUCK_Z_OFFSET)[0]
                 return Telemetry(
                     game_time=time_abs % 1440,
+                    game_day=time_abs // 1440,
                     paused=paused,
                     truck_x=truck_x,
                     truck_z=truck_z,

@@ -6,3 +6,5 @@ timezonefinder
 tzdata
 astral
 Pillow
+flask
+qrcode[pil]
