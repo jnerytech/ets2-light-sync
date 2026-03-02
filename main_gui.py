@@ -9,7 +9,6 @@ Or build a standalone exe:
 """
 
 import atexit
-import os
 import signal
 import sys
 
@@ -36,14 +35,15 @@ def _reset_light_on_exit() -> None:
         cfg = config.load()
         if not cfg.get("ha_token"):
             return
-        os.environ["HA_URL"] = str(cfg["ha_url"])
-        os.environ["HA_TOKEN"] = str(cfg["ha_token"])
-        os.environ["ENTITY_ID"] = str(cfg["entity_id"])
-        os.environ["TRANSITION_TIME"] = str(cfg["transition_time"])
-        os.environ["DEFAULT_BRIGHTNESS"] = str(cfg["default_brightness"])
-        os.environ["DEFAULT_COLOR_TEMP_K"] = str(cfg["default_color_temp_k"])
         from ha_client import HomeAssistantClient
-        HomeAssistantClient().reset_to_default()
+        HomeAssistantClient(
+            url=str(cfg["ha_url"]),
+            token=str(cfg["ha_token"]),
+            entity_id=str(cfg["entity_id"]),
+            transition=float(cfg["transition_time"]),
+            default_brightness=int(cfg["default_brightness"]),
+            default_color_temp_k=int(cfg["default_color_temp_k"]),
+        ).reset_to_default()
     except Exception:
         pass
 
