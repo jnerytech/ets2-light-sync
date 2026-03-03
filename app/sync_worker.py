@@ -1,13 +1,15 @@
 """
-app/sync_worker.py – QThread that runs the ETS2 → HA sync loop.
+app/sync_worker.py – QThread que executa o loop de sincronização ETS2 → HA.
 
-Mirrors main.py logic but runs in a background thread so the UI stays
-responsive.  Configuration is read from config/settings.json instead of .env.
+Espelha a lógica do main.py mas em background thread para a UI não travar.
+Configuração vem de config/settings.json em vez de .env.
 
-Lighting is driven exclusively by game time (minutes since midnight) using
-the static waypoint curve or a custom curve from settings.  Real-world
-coordinate/timezone conversion is NOT used — game time alone determines
-brightness and colour temperature.
+Pipeline:
+  coordenadas X/Z do jogo
+    → location.py  → lat/lon real + timezone + país
+    → sun_times.py → curva dinâmica com nascer/pôr do sol reais
+    → light_curve.py → brilho + temperatura de cor
+    → ha_client.py → Home Assistant
 """
 
 import logging
@@ -20,6 +22,8 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from app.config import load as load_config
 from ha_client import HomeAssistantClient
 from light_curve import calculate_light, DEFAULT_WAYPOINTS
+from location import get_location, reset_cache as reset_loc_cache
+from sun_times import get_sun_curve, reset_cache as reset_sun_cache
 from telemetry import get_telemetry
 
 
@@ -27,29 +31,30 @@ log = logging.getLogger(__name__)
 
 
 class SyncWorker(QThread):
-    """Background thread that polls ETS2 telemetry and drives HA lights."""
+    """Thread de fundo que lê telemetria ETS2 e controla luzes HA."""
 
-    status_changed = pyqtSignal(str)  # "running"|"connected"|"waiting"|"stopped"|"error"
-    light_updated  = pyqtSignal(int, int, int, int, float, float)
-    # args: game_day, game_time_minutes, brightness, kelvin, truck_x, truck_z
+    status_changed = pyqtSignal(str)
+    # "running"|"connected"|"waiting"|"stopped"|"error"
+
+    light_updated = pyqtSignal(int, int, int, int, str, str, float, float)
+    # game_day, game_time_min, brightness, kelvin, tz_name, country, truck_x, truck_z
 
     def __init__(self) -> None:
         super().__init__()
-        self._running = True  # Set False by stop(); True by default so stop() before run() works
+        self._running = True
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # ── API pública ───────────────────────────────────────────────────────────
 
     def stop(self) -> None:
-        """Signal the worker to stop after the current sleep."""
         self._running = False
 
-    # ── QThread entry point ───────────────────────────────────────────────────
+    # ── Entrada do QThread ────────────────────────────────────────────────────
 
     def run(self) -> None:
         cfg = load_config()
 
         if not cfg.get("ha_token"):
-            log.error("Token HA não configurado — abra as Configurações e insira seu token.")
+            log.error("Token HA não configurado — abra as Configurações.")
             self.status_changed.emit("error")
             return
 
@@ -67,25 +72,27 @@ class SyncWorker(QThread):
             self.status_changed.emit("error")
             return
 
-        # Load custom light curve (list-of-lists from JSON → list-of-tuples)
         raw_curve = cfg.get("light_curve")
         base_curve = [tuple(wp) for wp in raw_curve] if raw_curve else None
-
+        astronomical = cfg.get("astronomical_lighting", True)
         poll_interval = float(cfg.get("poll_interval", 5))
-        curve_label = "curva personalizada" if base_curve else "curva padrão"
 
-        if not self._running:  # stop() was called before run() had a chance to start
+        curve_label = "personalizada" if base_curve else ("astronômica" if astronomical else "estática padrão")
+
+        if not self._running:
             self.status_changed.emit("stopped")
             return
 
-        game_was_running = False
-
         log.info(
-            "ETS2 Light Sync iniciando  [poll=%.1fs  %s]",
+            "ETS2 Light Sync iniciando  [poll=%.1fs  curva=%s]",
             poll_interval, curve_label,
         )
-        _log_curve_summary(base_curve or list(DEFAULT_WAYPOINTS))
+        if not astronomical:
+            _log_curve_summary(base_curve or list(DEFAULT_WAYPOINTS))
+
         self.status_changed.emit("running")
+
+        game_was_running = False
 
         while self._running:
             telemetry = get_telemetry()
@@ -102,27 +109,46 @@ class SyncWorker(QThread):
                 truck_x   = telemetry.truck_x
                 truck_z   = telemetry.truck_z
 
+            # ── Jogo desconectado ─────────────────────────────────────────────
             if game_time is None:
                 if game_was_running:
                     log.info("Jogo desconectado — resetando luz para o padrão")
                     client.reset_to_default()
                     game_was_running = False
+                    reset_loc_cache()
+                    reset_sun_cache()
                     self.status_changed.emit("waiting")
                 else:
                     log.debug("Aguardando conexão com o jogo...")
+
+            # ── Jogo conectado ────────────────────────────────────────────────
             else:
                 if not game_was_running:
                     log.info(
                         "Jogo conectado  [Dia %d  %s%s]",
-                        game_day,
-                        _fmt(game_time),
+                        game_day, _fmt(game_time),
                         "  (pausado)" if paused else "",
                     )
+                    reset_loc_cache()
+                    reset_sun_cache()
                     game_was_running = True
                     self.status_changed.emit("connected")
 
-                # Lighting driven purely by game time — no real-world coordinates
-                brightness, color_temp = calculate_light(game_time, base_curve)
+                # ── Resolução de localização ──────────────────────────────────
+                tz_name = country = ""
+                active_curve = base_curve
+
+                if astronomical and not math.isnan(truck_x) and not math.isnan(truck_z):
+                    loc = get_location(truck_x, truck_z)
+                    if loc and loc.tz_name:
+                        tz_name = loc.tz_name
+                        country = loc.country_name or ""
+                        sun_curve = get_sun_curve(loc.lat, loc.lon, loc.tz_name)
+                        if sun_curve:
+                            active_curve = sun_curve
+
+                # ── Cálculo de brilho ─────────────────────────────────────────
+                brightness, color_temp = calculate_light(game_time, active_curve)
 
                 coords_str = (
                     f"X={truck_x:.0f} Z={truck_z:.0f}"
@@ -132,33 +158,36 @@ class SyncWorker(QThread):
 
                 if brightness == 0:
                     log.info(
-                        "Dia %d  %s%s  →  LUZ APAGADA  [%s]",
+                        "Dia %d  %s%s  →  LUZ APAGADA  [%s]%s",
                         game_day, _fmt(game_time),
                         "  (pausado)" if paused else "",
                         coords_str,
+                        f"  tz={tz_name}" if tz_name else "",
                     )
                 else:
                     log.info(
-                        "Dia %d  %s%s  →  brilho=%3d/255  temp=%dK  [%s]",
+                        "Dia %d  %s%s  →  brilho=%3d/255  %dK  [%s]%s",
                         game_day, _fmt(game_time),
                         "  (pausado)" if paused else "",
                         brightness, color_temp,
                         coords_str,
+                        f"  tz={tz_name}" if tz_name else "",
                     )
 
                 client.set_light(brightness, color_temp)
                 self.light_updated.emit(
                     game_day, game_time, brightness, color_temp,
+                    tz_name, country,
                     truck_x, truck_z,
                 )
 
-            # Sleep in 0.5 s increments so stop() is responsive.
+            # ── Espera com interrupção rápida ─────────────────────────────────
             elapsed = 0.0
             while self._running and elapsed < poll_interval:
                 time.sleep(0.5)
                 elapsed += 0.5
 
-        # ── Cleanup ───────────────────────────────────────────────────────────
+        # ── Encerramento ──────────────────────────────────────────────────────
         log.info("Encerrando — resetando luz para o padrão")
         client.reset_to_default()
         log.info("Até logo.")
@@ -172,7 +201,6 @@ def _fmt(minutes: int) -> str:
 
 
 def _log_curve_summary(curve: list) -> None:
-    """Log a compact summary of active waypoints for debugging."""
     log.debug("Curva de luz ativa (%d pontos):", len(curve))
     for minutes, brightness, kelvin in curve:
         log.debug("  %s  →  brilho=%3d/255  %dK", _fmt(minutes), brightness, kelvin)

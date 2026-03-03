@@ -1,15 +1,15 @@
 """
-app/main_window.py – Main application window for ETS2 Light Sync.
+app/main_window.py – Janela principal do ETS2 Light Sync.
 
-Shows live log output, sync status, and provides Start/Stop/Settings controls.
-Minimises to the system tray on close.
+Exibe logs em tempo real, status de sincronização, botões Start/Stop/Settings.
+Minimiza para a bandeja do sistema ao fechar.
 """
 
 import io
 import logging
 import math
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QFont, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -21,14 +21,12 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
-    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
 
 from app import config, theme
 from app.icon import make_icon
-from ha_client import HomeAssistantClient
 from app.log_handler import QtLogHandler
 from app.settings_dialog import SettingsDialog
 from app.state import AppState
@@ -45,11 +43,9 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ETS2 Light Sync")
-        self.setMinimumSize(640, 460)
+        self.setMinimumSize(640, 480)
 
         self._worker: SyncWorker | None = None
-
-        # ── Shared state + web server ─────────────────────────────────────────
         self._state = AppState()
         self._web = WebServer(self._state)
         self._web.start()
@@ -59,15 +55,13 @@ class MainWindow(QMainWindow):
         self._tray = TrayIcon(self, self)
         self._tray.show()
 
-        # QTimer drains pending start/stop actions queued by the web server.
-        from PyQt6.QtCore import QTimer
         self._action_timer = QTimer(self)
         self._action_timer.timeout.connect(self._drain_pending_actions)
         self._action_timer.start(500)
 
         log.info("ETS2 Light Sync pronto — clique em Iniciar para começar.")
 
-    # ── UI construction ───────────────────────────────────────────────────────
+    # ── Construção da UI ──────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -76,7 +70,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(4)
         root.setContentsMargins(8, 8, 8, 8)
 
-        # ── Button row ────────────────────────────────────────────────────────
+        # ── Botões ────────────────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
 
         self._start_btn = QPushButton("▶  Iniciar")
@@ -111,17 +105,20 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self._theme_combo)
         root.addLayout(btn_layout)
 
-        # ── Status panel ──────────────────────────────────────────────────────
+        # ── Painel de status ──────────────────────────────────────────────────
         self._status_label = QLabel("● Aguardando jogo   Hora: --:--")
         self._status_label.setStyleSheet("font-weight: bold;")
+
         self._values_label = QLabel("Brilho: --   Temperatura: --")
+        self._tz_label     = QLabel("Timezone: --   País: --")
         self._coords_label = QLabel("Coordenadas: --")
 
         root.addWidget(self._status_label)
         root.addWidget(self._values_label)
+        root.addWidget(self._tz_label)
         root.addWidget(self._coords_label)
 
-        # ── Log view ──────────────────────────────────────────────────────────
+        # ── Log ───────────────────────────────────────────────────────────────
         self._log_view = QPlainTextEdit()
         self._log_view.setReadOnly(True)
         mono = QFont("Consolas", 9)
@@ -139,12 +136,11 @@ class MainWindow(QMainWindow):
         logging.getLogger().addHandler(self._log_handler)
         logging.getLogger().setLevel(logging.DEBUG)
 
-        # Mirror log lines into the shared state so the web dashboard shows them.
         state_handler = _StateLogHandler(self._state)
         state_handler.setLevel(logging.DEBUG)
         logging.getLogger().addHandler(state_handler)
 
-    # ── Sync control ─────────────────────────────────────────────────────────
+    # ── Controle de sync ──────────────────────────────────────────────────────
 
     def start_sync(self) -> None:
         if self._worker and self._worker.isRunning():
@@ -161,35 +157,27 @@ class MainWindow(QMainWindow):
     def stop_sync(self) -> None:
         if self._worker:
             self._worker.stop()
-            self._stop_btn.setEnabled(False)  # Immediate visual feedback
+            self._stop_btn.setEnabled(False)
 
-    # ── Signal handlers ───────────────────────────────────────────────────────
+    # ── Handlers de sinal ─────────────────────────────────────────────────────
 
     def _on_status_changed(self, status: str) -> None:
-        icons = {
-            "running":   "○",
-            "connected": "●",
-            "waiting":   "○",
-            "stopped":   "■",
-            "error":     "✕",
-        }
-        icon = icons.get(status, "●")
-        labels = {
-            "running":   "Executando — aguardando jogo",
-            "connected": "Jogo conectado",
-            "waiting":   "Jogo desconectado",
-            "stopped":   "Parado",
-            "error":     "Erro — verifique as configurações",
-        }
-        text = labels.get(status, status)
-        self._status_label.setText(f"{icon} {text}")
+        icons  = {"running": "○", "connected": "●", "waiting": "○",
+                  "stopped": "■", "error": "✕"}
+        labels = {"running":   "Executando — aguardando jogo",
+                  "connected": "Jogo conectado",
+                  "waiting":   "Jogo desconectado",
+                  "stopped":   "Parado",
+                  "error":     "Erro — verifique as configurações"}
+        self._status_label.setText(f"{icons.get(status,'●')} {labels.get(status, status)}")
         self._state.update(status=status)
-
         if status in ("stopped", "error"):
             self._on_worker_finished()
 
     def _on_light_updated(
-        self, game_day: int, game_time: int, brightness: int, kelvin: int,
+        self,
+        game_day: int, game_time: int, brightness: int, kelvin: int,
+        tz_name: str, country: str,
         truck_x: float, truck_z: float,
     ) -> None:
         game_str = f"{game_time // 60:02d}:{game_time % 60:02d}"
@@ -199,13 +187,15 @@ class MainWindow(QMainWindow):
         self._values_label.setText(
             f"Brilho: {brightness}/255   Temperatura: {kelvin} K"
         )
-
+        self._tz_label.setText(
+            f"Timezone: {tz_name or '—'}   País: {country or '—'}"
+        )
         if not (math.isnan(truck_x) or math.isnan(truck_z)):
             self._coords_label.setText(
-                f"Coordenadas: X={truck_x:.0f}   Z={truck_z:.0f}"
+                f"Coordenadas ETS2: X={truck_x:.0f}   Z={truck_z:.0f}"
             )
         else:
-            self._coords_label.setText("Coordenadas: N/A")
+            self._coords_label.setText("Coordenadas ETS2: N/A")
 
         self._state.update(
             status="connected",
@@ -213,6 +203,8 @@ class MainWindow(QMainWindow):
             game_time=game_time,
             brightness=brightness,
             kelvin=kelvin,
+            tz_name=tz_name or None,
+            country=country or None,
             truck_x=truck_x,
             truck_z=truck_z,
         )
@@ -222,20 +214,19 @@ class MainWindow(QMainWindow):
         self._stop_btn.setEnabled(False)
         self._tray.set_running(False)
         self._values_label.setText("Brilho: --   Temperatura: --")
-        self._coords_label.setText("Coordenadas: --")
+        self._tz_label.setText("Timezone: --   País: --")
+        self._coords_label.setText("Coordenadas ETS2: --")
         self._state.update(status="stopped")
 
     def _append_log(self, msg: str) -> None:
         self._log_view.appendPlainText(msg)
-        # Trim to max lines
         doc = self._log_view.document()
         while doc.blockCount() > _MAX_LOG_LINES:
             cursor = self._log_view.textCursor()
             cursor.movePosition(cursor.MoveOperation.Start)
             cursor.select(cursor.SelectionType.BlockUnderCursor)
             cursor.removeSelectedText()
-            cursor.deleteChar()  # remove the trailing newline
-        # Auto-scroll
+            cursor.deleteChar()
         scrollbar = self._log_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
@@ -251,17 +242,12 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self)
         if dlg.exec() and self._worker and self._worker.isRunning():
-            # Restart worker with new config
             self._worker.stop()
             self._worker.wait()
             self.start_sync()
 
-    # ── Web dashboard ─────────────────────────────────────────────────────────
-
     def _show_web_dialog(self) -> None:
         _WebDialog(self._web.url, self).exec()
-
-    # ── Action drain (web → GUI thread) ──────────────────────────────────────
 
     def _drain_pending_actions(self) -> None:
         while True:
@@ -272,8 +258,6 @@ class MainWindow(QMainWindow):
                 self.start_sync()
             elif action == "stop":
                 self.stop_sync()
-
-    # ── Close → hide to tray ─────────────────────────────────────────────────
 
     def closeEvent(self, event: QCloseEvent) -> None:
         event.ignore()
@@ -286,11 +270,9 @@ class MainWindow(QMainWindow):
         )
 
 
-# ── QR Code dialog ────────────────────────────────────────────────────────────
+# ── Diálogo de QR Code ────────────────────────────────────────────────────────
 
 class _WebDialog(QDialog):
-    """Small dialog that shows the web dashboard URL + QR code."""
-
     def __init__(self, url: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Dashboard no Celular")
@@ -305,7 +287,6 @@ class _WebDialog(QDialog):
         title.setStyleSheet("font-size: 13px; font-weight: bold;")
         layout.addWidget(title)
 
-        # QR code image
         qr_label = QLabel()
         qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pixmap = _make_qr_pixmap(url, size=220)
@@ -315,15 +296,12 @@ class _WebDialog(QDialog):
             qr_label.setText("(instale qrcode[pil] para ver o QR)")
         layout.addWidget(qr_label)
 
-        # URL as clickable text
         url_label = QLabel(f'<a href="{url}">{url}</a>')
         url_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         url_label.setOpenExternalLinks(True)
         url_label.setTextFormat(Qt.TextFormat.RichText)
         url_label.setStyleSheet("font-size: 11px;")
-        url_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextBrowserInteraction
-        )
+        url_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         layout.addWidget(url_label)
 
         hint = QLabel("Ambos na mesma rede Wi-Fi")
@@ -337,14 +315,12 @@ class _WebDialog(QDialog):
 
 
 def _make_qr_pixmap(url: str, size: int = 220) -> QPixmap | None:
-    """Generate a QR code image and return it as a QPixmap, or None on error."""
     try:
         import qrcode  # type: ignore[import]
         qr = qrcode.QRCode(version=1, box_size=7, border=3)
         qr.add_data(url)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
-
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         pixmap = QPixmap()
@@ -359,11 +335,9 @@ def _make_qr_pixmap(url: str, size: int = 220) -> QPixmap | None:
         return None
 
 
-# ── Logging handler that mirrors to AppState ──────────────────────────────────
+# ── Handler de log → AppState ─────────────────────────────────────────────────
 
 class _StateLogHandler(logging.Handler):
-    """Forwards log records to AppState.add_log() for the web dashboard."""
-
     def __init__(self, state: AppState) -> None:
         super().__init__()
         self._state = state
