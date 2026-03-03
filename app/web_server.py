@@ -9,7 +9,7 @@ Endpoints
 ─────────
 GET  /              → mobile-friendly HTML dashboard
 GET  /api/status    → JSON snapshot of current state
-GET  /api/logs      → JSON list of last 50 log lines
+GET  /api/logs      → JSON list of last 100 log lines
 POST /api/start     → queue a start request (GUI thread processes it)
 POST /api/stop      → queue a stop request  (GUI thread processes it)
 """
@@ -83,7 +83,7 @@ details summary::before{content:"▸ ";transition:transform .2s}
 details[open] summary::before{content:"▾ "}
 #log-box{background:var(--surface);border-radius:8px;padding:10px;
   font-family:'Consolas','Menlo',monospace;font-size:.7rem;color:#9090b0;
-  max-height:180px;overflow-y:auto;margin-top:6px;
+  max-height:260px;overflow-y:auto;margin-top:6px;
   white-space:pre-wrap;word-break:break-all}
 .dot-connected{background:var(--green)}
 .dot-running{background:var(--yellow)}
@@ -112,21 +112,21 @@ details[open] summary::before{content:"▾ "}
     <span class="val" id="kval">--</span>
   </div>
   <div class="row">
-    <span class="lbl">&#128205; Pa&#237;s</span>
-    <span class="val" id="country">--</span>
+    <span class="lbl">&#128205; Pos. X</span>
+    <span class="val" id="truck-x">--</span>
   </div>
   <div class="row">
-    <span class="lbl">&#128336; Fuso</span>
-    <span class="val" id="tzval">--</span>
+    <span class="lbl">&#128205; Pos. Z</span>
+    <span class="val" id="truck-z">--</span>
   </div>
 </div>
 
 <div class="btn-row">
-  <button id="btn-start" onclick="act('start')" disabled>&#9654; Start</button>
-  <button id="btn-stop"  onclick="act('stop')"  disabled>&#9209; Stop</button>
+  <button id="btn-start" onclick="act('start')" disabled>&#9654; Iniciar</button>
+  <button id="btn-stop"  onclick="act('stop')"  disabled>&#9209; Parar</button>
 </div>
 
-<details>
+<details id="log-details">
   <summary>&#128221; Logs</summary>
   <div id="log-box">(abra para carregar)</div>
 </details>
@@ -149,8 +149,8 @@ async function refresh(){
     document.getElementById('bbar').style.width=pct+'%';
     document.getElementById('bval').textContent=d.brightness+'/255';
     document.getElementById('kval').textContent=d.kelvin+' K';
-    document.getElementById('country').textContent=d.country;
-    document.getElementById('tzval').textContent=d.tz_name;
+    document.getElementById('truck-x').textContent=d.truck_x!=null?d.truck_x:'N/A';
+    document.getElementById('truck-z').textContent=d.truck_z!=null?d.truck_z:'N/A';
     const dot=document.getElementById('status-dot');
     dot.className='dot-'+d.status;
     document.getElementById('status-text').textContent=LABELS[d.status]||d.status;
@@ -163,7 +163,7 @@ async function refresh(){
 }
 
 async function refreshLogs(){
-  const det=document.querySelector('details');
+  const det=document.getElementById('log-details');
   if(!det.open)return;
   try{
     const d=await(await fetch('/api/logs')).json();
@@ -180,7 +180,7 @@ async function act(a){
 
 refresh();
 setInterval(refresh,3000);
-setInterval(refreshLogs,5000);
+setInterval(refreshLogs,3000);
 </script>
 </body>
 </html>"""
@@ -235,7 +235,7 @@ class WebServer:
 
         @app.route("/api/logs")
         def api_logs():
-            return flask.jsonify({"logs": state.get_logs(50)})
+            return flask.jsonify({"logs": state.get_logs(100)})
 
         @app.route("/api/start", methods=["POST"])
         def api_start():

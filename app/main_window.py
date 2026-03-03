@@ -7,9 +7,9 @@ Minimises to the system tray on close.
 
 import io
 import logging
-import threading
+import math
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCloseEvent, QFont, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
@@ -22,7 +22,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSystemTrayIcon,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -31,7 +30,6 @@ from app import config, theme
 from app.icon import make_icon
 from ha_client import HomeAssistantClient
 from app.log_handler import QtLogHandler
-from app.map_widget import MapPanel
 from app.settings_dialog import SettingsDialog
 from app.state import AppState
 from app.sync_worker import SyncWorker
@@ -47,7 +45,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("ETS2 Light Sync")
-        self.setMinimumSize(700, 520)
+        self.setMinimumSize(640, 460)
 
         self._worker: SyncWorker | None = None
 
@@ -56,21 +54,18 @@ class MainWindow(QMainWindow):
         self._web = WebServer(self._state)
         self._web.start()
 
-        self._sim_timer: QTimer | None = None
-        self._sim_pending: tuple[int, int] | None = None
-
         self._build_ui()
-        self._map_panel.sim_light_update.connect(self._on_sim_light_update)
         self._setup_logging()
         self._tray = TrayIcon(self, self)
         self._tray.show()
 
         # QTimer drains pending start/stop actions queued by the web server.
+        from PyQt6.QtCore import QTimer
         self._action_timer = QTimer(self)
         self._action_timer.timeout.connect(self._drain_pending_actions)
         self._action_timer.start(500)
 
-        log.info("ETS2 Light Sync ready — click Start to begin.")
+        log.info("ETS2 Light Sync pronto — clique em Iniciar para começar.")
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -84,17 +79,17 @@ class MainWindow(QMainWindow):
         # ── Button row ────────────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
 
-        self._start_btn = QPushButton("▶  Start")
+        self._start_btn = QPushButton("▶  Iniciar")
         self._start_btn.clicked.connect(self.start_sync)
 
-        self._stop_btn = QPushButton("■  Stop")
+        self._stop_btn = QPushButton("■  Parar")
         self._stop_btn.clicked.connect(self.stop_sync)
         self._stop_btn.setEnabled(False)
 
-        self._settings_btn = QPushButton("⚙  Settings")
+        self._settings_btn = QPushButton("⚙  Configurações")
         self._settings_btn.clicked.connect(self._open_settings)
 
-        copy_btn = QPushButton("⎘  Copy Logs")
+        copy_btn = QPushButton("⎘  Copiar Logs")
         copy_btn.clicked.connect(self._copy_logs)
 
         web_btn = QPushButton("📱  Web")
@@ -116,26 +111,17 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(self._theme_combo)
         root.addLayout(btn_layout)
 
-        # ── Tab widget ────────────────────────────────────────────────────────
-        tabs = QTabWidget()
-
-        # Tab 1: Sync status + log
-        sync_tab = QWidget()
-        sync_layout = QVBoxLayout(sync_tab)
-        sync_layout.setSpacing(6)
-        sync_layout.setContentsMargins(0, 6, 0, 0)
-
-        self._status_label = QLabel("● Waiting for game   Game: --:--")
+        # ── Status panel ──────────────────────────────────────────────────────
+        self._status_label = QLabel("● Aguardando jogo   Hora: --:--")
         self._status_label.setStyleSheet("font-weight: bold;")
-        self._values_label = QLabel("Brightness: --   Color temp: --")
-        self._tz_label     = QLabel("Timezone: --")
-        self._country_label = QLabel("Country: --")
+        self._values_label = QLabel("Brilho: --   Temperatura: --")
+        self._coords_label = QLabel("Coordenadas: --")
 
-        sync_layout.addWidget(self._status_label)
-        sync_layout.addWidget(self._values_label)
-        sync_layout.addWidget(self._tz_label)
-        sync_layout.addWidget(self._country_label)
+        root.addWidget(self._status_label)
+        root.addWidget(self._values_label)
+        root.addWidget(self._coords_label)
 
+        # ── Log view ──────────────────────────────────────────────────────────
         self._log_view = QPlainTextEdit()
         self._log_view.setReadOnly(True)
         mono = QFont("Consolas", 9)
@@ -144,26 +130,18 @@ class MainWindow(QMainWindow):
         self._log_view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        sync_layout.addWidget(self._log_view)
-
-        tabs.addTab(sync_tab, "Sync")
-
-        # Tab 2: Map + simulation
-        self._map_panel = MapPanel()
-        tabs.addTab(self._map_panel, "Map")
-
-        root.addWidget(tabs)
+        root.addWidget(self._log_view)
 
     def _setup_logging(self) -> None:
         self._log_handler = QtLogHandler()
-        self._log_handler.setLevel(logging.INFO)
+        self._log_handler.setLevel(logging.DEBUG)
         self._log_handler.log_emitted.connect(self._append_log)
         logging.getLogger().addHandler(self._log_handler)
-        logging.getLogger().setLevel(logging.INFO)
+        logging.getLogger().setLevel(logging.DEBUG)
 
         # Mirror log lines into the shared state so the web dashboard shows them.
         state_handler = _StateLogHandler(self._state)
-        state_handler.setLevel(logging.INFO)
+        state_handler.setLevel(logging.DEBUG)
         logging.getLogger().addHandler(state_handler)
 
     # ── Sync control ─────────────────────────────────────────────────────────
@@ -174,7 +152,6 @@ class MainWindow(QMainWindow):
         self._worker = SyncWorker()
         self._worker.status_changed.connect(self._on_status_changed)
         self._worker.light_updated.connect(self._on_light_updated)
-        self._worker.position_updated.connect(self._map_panel.on_position_updated)
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
         self._start_btn.setEnabled(False)
@@ -185,46 +162,6 @@ class MainWindow(QMainWindow):
         if self._worker:
             self._worker.stop()
             self._stop_btn.setEnabled(False)  # Immediate visual feedback
-            # Start re-enable happens in _on_worker_finished once cleanup finishes
-
-    # ── Simulation light control ──────────────────────────────────────────────
-
-    def _on_sim_light_update(self, brightness: int, kelvin: int) -> None:
-        """Called when Map simulation slider/position changes. Debounces HA calls."""
-        if self._worker and self._worker.isRunning():
-            return  # Sync is active; simulation tab is preview-only
-        self._sim_pending = (brightness, kelvin)
-        if self._sim_timer is None:
-            self._sim_timer = QTimer(self)
-            self._sim_timer.setSingleShot(True)
-            self._sim_timer.timeout.connect(self._send_sim_light)
-        self._sim_timer.start(300)  # 300 ms debounce
-
-    def _send_sim_light(self) -> None:
-        """Send the debounced simulation light command to Home Assistant."""
-        if not self._sim_pending:
-            return
-        brightness, kelvin = self._sim_pending
-        self._sim_pending = None
-        cfg = config.load()
-        if not cfg.get("ha_token"):
-            return
-        try:
-            client = HomeAssistantClient(
-                url=str(cfg["ha_url"]),
-                token=str(cfg["ha_token"]),
-                entity_id=str(cfg["entity_id"]),
-                transition=float(cfg.get("transition_time", 1)),
-                default_brightness=int(cfg.get("default_brightness", 255)),
-                default_color_temp_k=int(cfg.get("default_color_temp_k", 4000)),
-            )
-            threading.Thread(
-                target=client.set_light,
-                args=(brightness, kelvin),
-                daemon=True,
-            ).start()
-        except Exception as exc:
-            log.debug("Simulation light update failed: %s", exc)
 
     # ── Signal handlers ───────────────────────────────────────────────────────
 
@@ -238,11 +175,11 @@ class MainWindow(QMainWindow):
         }
         icon = icons.get(status, "●")
         labels = {
-            "running":   "Running — waiting for game",
-            "connected": "Game connected",
-            "waiting":   "Game disconnected",
-            "stopped":   "Stopped",
-            "error":     "Error — check settings",
+            "running":   "Executando — aguardando jogo",
+            "connected": "Jogo conectado",
+            "waiting":   "Jogo desconectado",
+            "stopped":   "Parado",
+            "error":     "Erro — verifique as configurações",
         }
         text = labels.get(status, status)
         self._status_label.setText(f"{icon} {text}")
@@ -253,18 +190,22 @@ class MainWindow(QMainWindow):
 
     def _on_light_updated(
         self, game_day: int, game_time: int, brightness: int, kelvin: int,
-        tz_name: str, country_name: str,
+        truck_x: float, truck_z: float,
     ) -> None:
         game_str = f"{game_time // 60:02d}:{game_time % 60:02d}"
-        self._status_label.setText(f"● Game connected   Day: {game_day}  Game: {game_str}")
-        self._values_label.setText(
-            f"Brightness: {brightness}/255   Color temp: {kelvin} K"
+        self._status_label.setText(
+            f"● Jogo conectado   Dia: {game_day}   Hora: {game_str}"
         )
-        if tz_name:
-            self._tz_label.setText(f"Timezone: {tz_name}")
+        self._values_label.setText(
+            f"Brilho: {brightness}/255   Temperatura: {kelvin} K"
+        )
+
+        if not (math.isnan(truck_x) or math.isnan(truck_z)):
+            self._coords_label.setText(
+                f"Coordenadas: X={truck_x:.0f}   Z={truck_z:.0f}"
+            )
         else:
-            self._tz_label.setText("Timezone: unknown")
-        self._country_label.setText(f"Country: {country_name or '—'}")
+            self._coords_label.setText("Coordenadas: N/A")
 
         self._state.update(
             status="connected",
@@ -272,20 +213,16 @@ class MainWindow(QMainWindow):
             game_time=game_time,
             brightness=brightness,
             kelvin=kelvin,
-            tz_name=tz_name or None,
-            country=country_name or None,
+            truck_x=truck_x,
+            truck_z=truck_z,
         )
-
-        # Forward to map panel
-        self._map_panel.on_light_updated(game_day, game_time, brightness, kelvin, tz_name, country_name)
 
     def _on_worker_finished(self) -> None:
         self._start_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
         self._tray.set_running(False)
-        self._values_label.setText("Brightness: --   Color temp: --")
-        self._tz_label.setText("Timezone: --")
-        self._country_label.setText("Country: --")
+        self._values_label.setText("Brilho: --   Temperatura: --")
+        self._coords_label.setText("Coordenadas: --")
         self._state.update(status="stopped")
 
     def _append_log(self, msg: str) -> None:
@@ -343,7 +280,7 @@ class MainWindow(QMainWindow):
         self.hide()
         self._tray.showMessage(
             "ETS2 Light Sync",
-            "Still running in the system tray.",
+            "Ainda executando na bandeja do sistema.",
             make_icon(),
             2000,
         )
@@ -418,7 +355,7 @@ def _make_qr_pixmap(url: str, size: int = 220) -> QPixmap | None:
             Qt.TransformationMode.SmoothTransformation,
         )
     except Exception as exc:
-        log.debug("QR code generation failed: %s", exc)
+        log.debug("Falha ao gerar QR code: %s", exc)
         return None
 
 

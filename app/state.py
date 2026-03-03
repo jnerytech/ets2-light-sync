@@ -10,6 +10,7 @@ deque-based queue that the GUI thread drains via a QTimer, avoiding any
 direct Qt calls from non-GUI threads.
 """
 
+import math
 import threading
 from collections import deque
 from typing import Optional
@@ -27,12 +28,12 @@ class AppState:
         self.game_day: int = 0
         self.brightness: int = 0      # 0-255
         self.kelvin: int = 6500
-        self.country: Optional[str] = None
-        self.tz_name: Optional[str] = None
+        self.truck_x: float = float("nan")   # ETS2 world X coordinate (East)
+        self.truck_z: float = float("nan")   # ETS2 world Z coordinate (South)
 
         # ── Rolling log buffer ────────────────────────────────────────────────
         self._logs: list[str] = []
-        self._max_logs: int = 100
+        self._max_logs: int = 200
 
         # ── Cross-thread action queue (web → GUI thread) ──────────────────────
         # deque.append / deque.popleft are thread-safe in CPython (GIL).
@@ -66,17 +67,19 @@ class AppState:
         """Return a JSON-serialisable dict of the current state."""
         with self._lock:
             h, m = divmod(self.game_time, 60)
+            tx = None if math.isnan(self.truck_x) else round(self.truck_x)
+            tz = None if math.isnan(self.truck_z) else round(self.truck_z)
             return {
                 "status":     self.status,
                 "game_time":  f"{h:02d}:{m:02d}",
                 "game_day":   self.game_day,
                 "brightness": self.brightness,
                 "kelvin":     self.kelvin,
-                "country":    self.country or "—",
-                "tz_name":    self.tz_name or "UTC",
+                "truck_x":    tx,
+                "truck_z":    tz,
             }
 
-    def get_logs(self, last_n: int = 50) -> list[str]:
+    def get_logs(self, last_n: int = 100) -> list[str]:
         with self._lock:
             return list(self._logs[-last_n:])
 
