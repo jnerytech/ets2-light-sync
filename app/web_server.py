@@ -1,17 +1,16 @@
 """
-app/web_server.py – Embedded HTTP dashboard for ETS2 Light Sync.
+app/web_server.py – Dashboard HTTP embutido do ETS2 Light Sync.
 
-Starts a Flask server in a daemon thread so the app is reachable from any
-device on the same local network.  Scan the QR code shown in the main window
-to open the dashboard on your phone.
+Inicia um servidor Flask em daemon thread acessível em qualquer dispositivo
+da rede local. Escaneie o QR Code na janela principal para abrir no celular.
 
 Endpoints
 ─────────
-GET  /              → mobile-friendly HTML dashboard
-GET  /api/status    → JSON snapshot of current state
-GET  /api/logs      → JSON list of last 50 log lines
-POST /api/start     → queue a start request (GUI thread processes it)
-POST /api/stop      → queue a stop request  (GUI thread processes it)
+GET  /              → HTML dashboard responsivo
+GET  /api/status    → snapshot JSON do estado atual
+GET  /api/logs      → últimas 100 linhas de log
+POST /api/start     → enfileira pedido de start (processado pela thread GUI)
+POST /api/stop      → enfileira pedido de stop
 """
 
 import logging
@@ -27,13 +26,8 @@ log = logging.getLogger(__name__)
 
 DEFAULT_PORT = 8765
 
-# Silence Flask's "Running on http://…" banner — we log it ourselves.
 flask.cli.show_server_banner = lambda *_, **__: None  # type: ignore[assignment]
-# Silence per-request werkzeug logs (GET /api/status every 3 s would be noisy).
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
-
-# ── HTML dashboard ────────────────────────────────────────────────────────────
-# Self-contained: no CDN, no external fonts — works fully offline on LAN.
 
 _DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -64,7 +58,7 @@ header h1{font-size:1.15rem;font-weight:600;flex:1}
   border-bottom:1px solid var(--surface2);gap:8px}
 .row:last-child{border-bottom:none}
 .lbl{font-size:.82rem;color:var(--muted);min-width:96px}
-.val{flex:1;font-weight:500;text-align:right}
+.val{flex:1;font-weight:500;text-align:right;font-size:.9rem}
 .bar-track{flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;margin:0 8px}
 .bar-fill{height:100%;border-radius:4px;
   background:linear-gradient(to right,#e65100,#fbc02d,#fff9c4);
@@ -79,11 +73,11 @@ button:disabled{opacity:.3;cursor:default}
 #btn-stop{background:var(--red);color:#fff}
 details summary{cursor:pointer;color:var(--muted);font-size:.8rem;
   padding:6px 0;user-select:none;list-style:none}
-details summary::before{content:"▸ ";transition:transform .2s}
+details summary::before{content:"▸ "}
 details[open] summary::before{content:"▾ "}
 #log-box{background:var(--surface);border-radius:8px;padding:10px;
-  font-family:'Consolas','Menlo',monospace;font-size:.7rem;color:#9090b0;
-  max-height:180px;overflow-y:auto;margin-top:6px;
+  font-family:'Consolas','Menlo',monospace;font-size:.68rem;color:#9090b0;
+  max-height:300px;overflow-y:auto;margin-top:6px;
   white-space:pre-wrap;word-break:break-all}
 .dot-connected{background:var(--green)}
 .dot-running{background:var(--yellow)}
@@ -102,6 +96,7 @@ details[open] summary::before{content:"▾ "}
 <div class="card">
   <div id="game-time">--:--</div>
   <div id="game-day">Dia --</div>
+
   <div class="row">
     <span class="lbl">&#128161; Brilho</span>
     <div class="bar-track"><div class="bar-fill" id="bbar" style="width:0%"></div></div>
@@ -116,17 +111,21 @@ details[open] summary::before{content:"▾ "}
     <span class="val" id="country">--</span>
   </div>
   <div class="row">
-    <span class="lbl">&#128336; Fuso</span>
+    <span class="lbl">&#128336; Timezone</span>
     <span class="val" id="tzval">--</span>
+  </div>
+  <div class="row">
+    <span class="lbl">&#128736; Pos. X / Z</span>
+    <span class="val" id="coords">--</span>
   </div>
 </div>
 
 <div class="btn-row">
-  <button id="btn-start" onclick="act('start')" disabled>&#9654; Start</button>
-  <button id="btn-stop"  onclick="act('stop')"  disabled>&#9209; Stop</button>
+  <button id="btn-start" onclick="act('start')" disabled>&#9654; Iniciar</button>
+  <button id="btn-stop"  onclick="act('stop')"  disabled>&#9209; Parar</button>
 </div>
 
-<details>
+<details id="log-details">
   <summary>&#128221; Logs</summary>
   <div id="log-box">(abra para carregar)</div>
 </details>
@@ -149,8 +148,11 @@ async function refresh(){
     document.getElementById('bbar').style.width=pct+'%';
     document.getElementById('bval').textContent=d.brightness+'/255';
     document.getElementById('kval').textContent=d.kelvin+' K';
-    document.getElementById('country').textContent=d.country;
-    document.getElementById('tzval').textContent=d.tz_name;
+    document.getElementById('country').textContent=d.country||'--';
+    document.getElementById('tzval').textContent=d.tz_name||'--';
+    const cx=d.truck_x!=null?d.truck_x:'?';
+    const cz=d.truck_z!=null?d.truck_z:'?';
+    document.getElementById('coords').textContent=cx+' / '+cz;
     const dot=document.getElementById('status-dot');
     dot.className='dot-'+d.status;
     document.getElementById('status-text').textContent=LABELS[d.status]||d.status;
@@ -163,7 +165,7 @@ async function refresh(){
 }
 
 async function refreshLogs(){
-  const det=document.querySelector('details');
+  const det=document.getElementById('log-details');
   if(!det.open)return;
   try{
     const d=await(await fetch('/api/logs')).json();
@@ -180,46 +182,33 @@ async function act(a){
 
 refresh();
 setInterval(refresh,3000);
-setInterval(refreshLogs,5000);
+setInterval(refreshLogs,3000);
 </script>
 </body>
 </html>"""
 
 
-# ── WebServer ─────────────────────────────────────────────────────────────────
-
 class WebServer:
-    """Flask-based HTTP server running in a background daemon thread."""
-
     def __init__(self, state: AppState, port: int = DEFAULT_PORT) -> None:
         self._state = state
         self._port = port
         self._url = f"http://{_local_ip()}:{port}"
         self._app = self._build_app()
 
-    # ── Public API ────────────────────────────────────────────────────────────
-
     @property
     def url(self) -> str:
         return self._url
 
     def start(self) -> None:
-        """Start the server in a daemon thread (non-blocking)."""
         t = threading.Thread(
             target=self._app.run,
-            kwargs=dict(
-                host="0.0.0.0",
-                port=self._port,
-                use_reloader=False,
-                threaded=True,
-            ),
+            kwargs=dict(host="0.0.0.0", port=self._port,
+                        use_reloader=False, threaded=True),
             daemon=True,
             name="WebServer",
         )
         t.start()
         log.info("Web dashboard disponível em %s", self._url)
-
-    # ── Flask routes ──────────────────────────────────────────────────────────
 
     def _build_app(self) -> flask.Flask:
         app = flask.Flask(__name__)
@@ -235,7 +224,7 @@ class WebServer:
 
         @app.route("/api/logs")
         def api_logs():
-            return flask.jsonify({"logs": state.get_logs(50)})
+            return flask.jsonify({"logs": state.get_logs(100)})
 
         @app.route("/api/start", methods=["POST"])
         def api_start():
@@ -250,14 +239,9 @@ class WebServer:
         return app
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _local_ip() -> str:
-    """Return the primary LAN IP address of this machine."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
         try:
-            # Connect to an external address (no data sent) to find the
-            # outgoing interface IP.
             s.connect(("8.8.8.8", 80))
             return s.getsockname()[0]
         except OSError:

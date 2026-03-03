@@ -1,17 +1,18 @@
 """
-location.py – ETS2 world coordinates → real-world LocationInfo.
+location.py – Coordenadas ETS2 → LocationInfo real.
 
-Converts truck world-space coordinates (X=East, Z=South, game unit ≈ 1 m at
-1:19 map scale) into a real-world latitude/longitude, then determines:
-  - IANA timezone name (via offline timezonefinder)
-  - Country display name (via static data/ets2_countries.json)
-  - UTC offset in minutes (via zoneinfo, including DST)
+Converte as coordenadas world-space do caminhão (X=Leste, Z=Norte, unidade ≈ 1 m
+na escala 1:19 do mapa ETS2 Europa) para latitude/longitude real e determina:
+  - Nome da timezone IANA (via timezonefinder offline)
+  - Nome do país (via data/ets2_countries.json)
+  - Offset UTC em minutos (via zoneinfo, incluindo DST)
 
-A single TimezoneFinder instance is created once at import time (loading its
-data file is expensive) and reused for every lookup.
+Calibração linear com dois pontos de ancoragem (Paris e Berlim):
+  Paris:  ETS2(X=-31600, Z=-62000) → real(48.8566°N, 2.3522°E)
+  Berlim: ETS2(X= 17400, Z=-39200) → real(52.5200°N, 13.4050°E)
 
-Caching: timezone lookup is skipped when the truck has moved less than
-_CACHE_THRESHOLD_UNITS game units from the last successful lookup position.
+Cache: o lookup de timezone é ignorado quando o caminhão se moveu menos de
+_CACHE_THRESHOLD_UNITS unidades desde a última consulta bem-sucedida.
 """
 
 import datetime
@@ -24,30 +25,28 @@ from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
 
-# ── Calibration constants ──────────────────────────────────────────────────────
-# Derived from two known city positions in ETS2 world-space vs real geography.
-#   Paris:  ETS2 (X=-31600, Z=-62000) → real (lat=48.8566, lon=2.3522)
-#   Berlin: ETS2 (X= 17400, Z=-39200) → real (lat=52.5200, lon=13.4050)
+# ── Constantes de calibração ───────────────────────────────────────────────────
+# Dois pontos de referência: Paris e Berlim.
+# Nota: no sistema ETS2, Z menos negativo = mais ao norte.
 
-_REF_X   = -31600.0   # Paris ETS2 X (East)
-_REF_Z   = -62000.0   # Paris ETS2 Z (South)
-_REF_LAT =  48.8566   # Paris real latitude
-_REF_LON =   2.3522   # Paris real longitude
+_REF_X   = -31600.0   # Paris ETS2 X (Leste)
+_REF_Z   = -62000.0   # Paris ETS2 Z
+_REF_LAT =  48.8566   # Paris latitude real
+_REF_LON =   2.3522   # Paris longitude real
 
-_SCALE_LON = (13.4050 - 2.3522) / (17400.0 - (-31600.0))   # ≈ 0.00022548 deg/unit
-_SCALE_LAT = (52.5200 - 48.8566) / (-39200.0 - (-62000.0))  # ≈ 0.00016074 deg/unit
+_SCALE_LON = (13.4050 - 2.3522) / (17400.0 - (-31600.0))   # ≈ 0.00022548 grau/unidade
+_SCALE_LAT = (52.5200 - 48.8566) / (-39200.0 - (-62000.0))  # ≈ 0.00016074 grau/unidade
 
-_CACHE_THRESHOLD_UNITS = 5000.0  # Re-query only when truck moves > ~5 km
+_CACHE_THRESHOLD_UNITS = 5000.0  # Re-consulta só quando mover > ~5 km
 
-# ── TimezoneFinder singleton ───────────────────────────────────────────────────
-# Constructed once — loading the data file is slow (~0.5 s).
+# ── Singleton TimezoneFinder ───────────────────────────────────────────────────
 try:
     from timezonefinder import TimezoneFinder as _TFClass
     _TF: Optional[_TFClass] = _TFClass()
 except ImportError:
     _TF = None  # type: ignore[assignment]
 
-# ── Static country data ────────────────────────────────────────────────────────
+# ── Dados estáticos de países ─────────────────────────────────────────────────
 
 def _load_countries() -> dict:
     try:
@@ -56,41 +55,40 @@ def _load_countries() -> dict:
             data = json.load(f)
         return data.get("by_timezone", {})
     except Exception as exc:
-        log.warning("Could not load ets2_countries.json: %s", exc)
+        log.warning("Não foi possível carregar ets2_countries.json: %s", exc)
         return {}
 
 _COUNTRIES: dict = _load_countries()
 
 
-# ── LocationInfo result type ───────────────────────────────────────────────────
+# ── Tipo de resultado ─────────────────────────────────────────────────────────
 
 class LocationInfo(NamedTuple):
     lat: float
     lon: float
-    tz_name: Optional[str]        # IANA timezone name, e.g. "Europe/Berlin"
-    country_name: Optional[str]   # Display name, e.g. "Germany"
-    utc_offset_minutes: int       # UTC offset including DST, e.g. +120 for CEST
+    tz_name: Optional[str]
+    country_name: Optional[str]
+    utc_offset_minutes: int
 
 
-# ── Pure coordinate conversion ────────────────────────────────────────────────
+# ── Conversão pura de coordenadas ─────────────────────────────────────────────
 
 def ets2_to_latlon(x: float, z: float) -> tuple[float, float]:
-    """Convert ETS2 world coordinates to real-world (latitude, longitude)."""
+    """Converte coordenadas ETS2 world-space para (latitude, longitude) reais."""
     lat = _REF_LAT + (z - _REF_Z) * _SCALE_LAT
     lon = _REF_LON + (x - _REF_X) * _SCALE_LON
     return lat, lon
 
 
 def get_country_name(tz_name: str) -> Optional[str]:
-    """Return country display name for a given IANA timezone name, or None."""
     entry = _COUNTRIES.get(tz_name)
     return entry["name"] if entry else None
 
 
-# ── Location cache ─────────────────────────────────────────────────────────────
+# ── Cache de localização ──────────────────────────────────────────────────────
 
 class _LocationCache:
-    """Resolves ETS2 truck coordinates to LocationInfo, with position-based caching."""
+    """Resolve coordenadas ETS2 para LocationInfo com cache por posição."""
 
     def __init__(self, threshold_units: float = _CACHE_THRESHOLD_UNITS) -> None:
         self._threshold = threshold_units
@@ -99,20 +97,24 @@ class _LocationCache:
         self._cached_info: Optional[LocationInfo] = None
 
     def get(self, truck_x: float, truck_z: float) -> Optional[LocationInfo]:
-        """Return LocationInfo for the given ETS2 position, using cache when available."""
         if math.isnan(truck_x) or math.isnan(truck_z):
             return None
         if self._is_cache_hit(truck_x, truck_z):
+            log.debug(
+                "Location cache hit  [X=%.0f Z=%.0f]  tz=%s",
+                truck_x, truck_z,
+                self._cached_info.tz_name if self._cached_info else "N/A",
+            )
             return self._cached_info
         info = self._resolve(truck_x, truck_z)
         self._cached_x, self._cached_z, self._cached_info = truck_x, truck_z, info
         return info
 
     def reset(self) -> None:
-        """Invalidate the cache (call at game session start)."""
         self._cached_x = None
         self._cached_z = None
         self._cached_info = None
+        log.debug("Cache de localização invalidado")
 
     def _is_cache_hit(self, x: float, z: float) -> bool:
         if self._cached_x is None or self._cached_z is None:
@@ -125,14 +127,26 @@ class _LocationCache:
             lat = max(-90.0, min(90.0, lat))
             lon = max(-180.0, min(180.0, lon))
 
+            # ── Log de diagnóstico: sempre visível para facilitar calibração ──
+            log.info(
+                "Posição do jogo → conversão: X=%.0f Z=%.0f  →  lat=%.4f° lon=%.4f°",
+                truck_x, truck_z, lat, lon,
+            )
+
             if _TF is None:
-                log.warning("timezonefinder not available — location lookup disabled")
+                log.warning("timezonefinder não instalado — localização desabilitada")
                 return LocationInfo(lat=lat, lon=lon, tz_name=None,
                                     country_name=None, utc_offset_minutes=0)
 
             tz_name = _TF.timezone_at(lat=lat, lng=lon)
+
             if tz_name is None:
-                log.debug("No timezone at lat=%.4f lon=%.4f — using UTC+0", lat, lon)
+                log.warning(
+                    "Nenhuma timezone encontrada para lat=%.4f lon=%.4f "
+                    "(posição convertida pode estar fora do mapa real — "
+                    "verifique a calibração de coordenadas)",
+                    lat, lon,
+                )
                 return LocationInfo(lat=lat, lon=lon, tz_name=None,
                                     country_name=None, utc_offset_minutes=0)
 
@@ -143,30 +157,42 @@ class _LocationCache:
             offset_minutes = int(utc_offset.total_seconds() // 60)
             country_name = get_country_name(tz_name)
 
-            log.debug(
-                "Location: %s  UTC%+.1f  country=%s  (lat=%.4f lon=%.4f)",
-                tz_name, offset_minutes / 60, country_name or "unknown", lat, lon,
+            log.info(
+                "Localização detectada: %s  (%s)  UTC%+.1fh  "
+                "[lat=%.4f° lon=%.4f°  coords ETS2: X=%.0f Z=%.0f]",
+                tz_name,
+                country_name or "país desconhecido",
+                offset_minutes / 60,
+                lat, lon,
+                truck_x, truck_z,
             )
-            return LocationInfo(lat=lat, lon=lon, tz_name=tz_name,
-                                country_name=country_name,
-                                utc_offset_minutes=offset_minutes)
+
+            return LocationInfo(
+                lat=lat, lon=lon,
+                tz_name=tz_name,
+                country_name=country_name,
+                utc_offset_minutes=offset_minutes,
+            )
 
         except Exception as exc:
-            log.warning("Location lookup failed: %s — falling back to UTC+0", exc)
+            log.warning(
+                "Falha no lookup de localização [X=%.0f Z=%.0f]: %s — usando UTC+0",
+                truck_x, truck_z, exc,
+            )
             return LocationInfo(lat=float("nan"), lon=float("nan"), tz_name=None,
                                 country_name=None, utc_offset_minutes=0)
 
 
-# ── Module-level singleton + public API ───────────────────────────────────────
+# ── Singleton público ─────────────────────────────────────────────────────────
 
 _cache = _LocationCache()
 
 
 def get_location(truck_x: float, truck_z: float) -> Optional[LocationInfo]:
-    """Return LocationInfo for the given ETS2 truck position (cached)."""
+    """Retorna LocationInfo para a posição ETS2 informada (com cache)."""
     return _cache.get(truck_x, truck_z)
 
 
 def reset_cache() -> None:
-    """Invalidate the position cache (call at game session start)."""
+    """Invalida o cache de posição (chamar no início de cada sessão)."""
     _cache.reset()

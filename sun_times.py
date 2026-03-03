@@ -84,13 +84,15 @@ class _SunCache:
                 (1440,                       0,   2700),  # midnight wrap
             ])
 
-            log.debug(
-                "Sun curve for %.2f°N %.2f°E (%s) on %s: "
-                "dawn=%02d:%02d sunrise=%02d:%02d noon=%02d:%02d "
-                "sunset=%02d:%02d dusk=%02d:%02d",
+            log.info(
+                "Eventos solares [lat=%.2f° lon=%.2f°  %s  %s]: "
+                "amanhecer=%02d:%02d  nascer=%02d:%02d  meio-dia=%02d:%02d  "
+                "pôr=%02d:%02d  crepúsculo=%02d:%02d",
                 lat, lon, tz_name, date,
-                dawn // 60, dawn % 60, sunrise // 60, sunrise % 60,
-                noon // 60, noon % 60, sunset // 60, sunset % 60,
+                dawn // 60, dawn % 60,
+                sunrise // 60, sunrise % 60,
+                noon // 60, noon % 60,
+                sunset // 60, sunset % 60,
                 dusk // 60, dusk % 60,
             )
 
@@ -99,7 +101,7 @@ class _SunCache:
             return curve
 
         except Exception as exc:
-            log.debug("Sun curve unavailable (lat=%.2f lon=%.2f): %s", lat, lon, exc)
+            log.warning("Curva solar indisponível (lat=%.2f lon=%.2f): %s", lat, lon, exc)
             self._key = (round(lat, 1), round(lon, 1),
                          (date or datetime.date.today()).isoformat())
             self._curve = None
